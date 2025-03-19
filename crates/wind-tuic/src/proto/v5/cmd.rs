@@ -88,21 +88,27 @@ impl Encoder<Command> for CommandCodec {
                 dst.reserve(16 + 32);
                 dst.put_slice(uuid.as_bytes());
                 dst.put_slice(&token);
-            },
-            Command::Connect => {},
-            Command::Packet { assos_id, pkt_id, frag_total, frag_id, size } => {
+            }
+            Command::Connect => {}
+            Command::Packet {
+                assos_id,
+                pkt_id,
+                frag_total,
+                frag_id,
+                size,
+            } => {
                 dst.reserve(8);
                 dst.put_u16(assos_id);
                 dst.put_u16(pkt_id);
                 dst.put_u8(frag_total);
                 dst.put_u8(frag_id);
                 dst.put_u16(size);
-            },
+            }
             Command::Dissociate { assos_id } => {
                 dst.reserve(2);
                 dst.put_u16(assos_id);
-            },
-            Command::Heartbeat => {},
+            }
+            Command::Heartbeat => {}
         }
         Ok(())
     }

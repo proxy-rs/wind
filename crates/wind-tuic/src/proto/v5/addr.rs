@@ -35,16 +35,14 @@ impl Decoder for AddressCodec {
     type Item = Address;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 1 {
+        if src.is_empty() {
             return Ok(None);
         }
         let addr_type = AddressType::from(src.get_u8());
 
         ensure!(!matches!(addr_type, AddressType::Other(..)), UnknownAddressTypeSnafu { value: u8::from(addr_type) });
         match addr_type {
-            AddressType::None => {
-                Ok(Some(Address::None))
-            }
+            AddressType::None => Ok(Some(Address::None)),
             AddressType::IPv4 => {
                 if src.len() < 4 + 2 {
                     return Ok(None);
@@ -66,7 +64,7 @@ impl Decoder for AddressCodec {
                 Ok(Some(Address::IPv6(ip, port)))
             }
             AddressType::FQDN => {
-                if src.len() < 1 {
+                if src.is_empty() {
                     return Ok(None);
                 }
                 let domain_len = src.get_u8() as usize;
@@ -80,6 +78,7 @@ impl Decoder for AddressCodec {
                         raw: hex::encode(domain),
                     })?
                     .to_string();
+                src.advance(domain_len);
                 let port = src.get_u16();
                 Ok(Some(Address::FQDN(domain, port)))
             }
