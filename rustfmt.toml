@@ -1,0 +1,31 @@
+unstable_features = true
+style_edition = "2024"
+edition = "2024"
+tab_spaces = 4
+max_width = 100
+
+# imports
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+
+# comments
+wrap_comments = true
+normalize_comments = true
+format_code_in_doc_comments = true
+
+# shorthand
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# threshold
+enum_discrim_align_threshold = 20
+struct_field_align_threshold = 20
+
+reorder_impl_items = true
+condense_wildcard_suffixes = true
+
+
+format_strings = true
+format_macro_matchers = true
+
+skip_macro_invocations = ["ensure"]
