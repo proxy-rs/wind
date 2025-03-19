@@ -1,7 +1,7 @@
 unstable_features = true
 style_edition = "2024"
 edition = "2024"
-tab_spaces = 4
+tab_spaces = 3
 max_width = 100
 
 # imports
