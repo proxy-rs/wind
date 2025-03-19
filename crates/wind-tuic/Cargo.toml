@@ -1,0 +1,10 @@
+[package]
+name = "wind-tuic"
+version.workspace = true
+repository.workspace = true
+edition.workspace = true
+description.workspace = true
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio-util = { version = "*", features = ["codec"]}
