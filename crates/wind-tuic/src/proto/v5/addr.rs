@@ -31,7 +31,7 @@ pub enum AddressType {
    Other(u8),
 }
 // https://github.com/zephry-works/wind/blob/main/crates/wind-tuic/SPEC.md#5-address-encoding
-#[cfg(feature = "server")]
+#[cfg(feature = "decode")]
 impl Decoder for AddressCodec {
    type Error = crate::Error;
    type Item = Address;
@@ -102,7 +102,7 @@ impl Decoder for AddressCodec {
    }
 }
 
-#[cfg(feature = "client")]
+#[cfg(feature = "encode")]
 impl Encoder<Address> for AddressCodec {
    type Error = crate::Error;
 

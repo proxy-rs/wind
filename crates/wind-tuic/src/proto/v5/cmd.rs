@@ -29,7 +29,7 @@ pub enum Command {
 }
 
 // https://github.com/zephry-works/wind/blob/main/crates/wind-tuic/SPEC.md#3-command-specifications
-#[cfg(feature = "server")]
+#[cfg(feature = "decode")]
 impl Decoder for CommandCodec {
    type Error = crate::Error;
    type Item = Command;
@@ -52,17 +52,13 @@ impl Decoder for CommandCodec {
             if src.len() < 8 {
                return Ok(None);
             }
-            let assos_id = src.get_u16();
-            let pkt_id = src.get_u16();
-            let frag_total = src.get_u8();
-            let frag_id = src.get_u8();
-            let size = src.get_u16();
+
             Ok(Some(Command::Packet {
-               assos_id,
-               pkt_id,
-               frag_total,
-               frag_id,
-               size,
+               assos_id:   src.get_u16(),
+               pkt_id:     src.get_u16(),
+               frag_total: src.get_u8(),
+               frag_id:    src.get_u8(),
+               size:       src.get_u16(),
             }))
          }
          CommandType::Dissociate => {
@@ -85,7 +81,7 @@ impl Decoder for CommandCodec {
    }
 }
 
-#[cfg(feature = "client")]
+#[cfg(feature = "encode")]
 impl Encoder<Command> for CommandCodec {
    type Error = crate::Error;
 

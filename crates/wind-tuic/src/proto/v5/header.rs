@@ -36,7 +36,7 @@ impl Header {
    }
 }
 
-#[cfg(feature = "server")]
+#[cfg(feature = "decode")]
 impl Decoder for HeaderCodec {
    type Error = crate::Error;
    type Item = Header;
@@ -63,7 +63,7 @@ impl Decoder for HeaderCodec {
    }
 }
 
-#[cfg(feature = "client")]
+#[cfg(feature = "encode")]
 impl Encoder<Header> for HeaderCodec {
    type Error = crate::Error;
 

@@ -8,8 +8,10 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["server", "client"]
-server = []
-client = []
+decode = []
+encode = []
+server = ["decode"]
+client = ["encode"]
 
 [dependencies]
 # Async
@@ -17,7 +19,7 @@ tokio = { version = "*", default-features = false }
 tokio-util = { version = "*", features = ["codec"] }
 
 tokio-stream = "*"
-futures-util = { version = "*", default-features = false, features = ["sink"]}
+futures-util = { version = "*", default-features = false, features = ["sink"] }
 
 bytes = "*"
 uuid = "*"
