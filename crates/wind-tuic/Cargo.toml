@@ -12,7 +12,13 @@ server = []
 client = []
 
 [dependencies]
+# Async
+tokio = { version = "*", default-features = false }
 tokio-util = { version = "*", features = ["codec"] }
+
+tokio-stream = "*"
+futures-util = { version = "*", default-features = false, features = ["sink"]}
+
 bytes = "*"
 uuid = "*"
 hex = { package = "const-hex", version = "1" }
@@ -20,3 +26,8 @@ hex = { package = "const-hex", version = "1" }
 # Patterns
 num_enum = "0.7"
 snafu = "0.8"
+
+[dev-dependencies]
+tokio = { version = "*", default-features = false, features = ["macros", "rt"] }
+eyre = "*"
+color-eyre = { version = "0.6", default-features = false }

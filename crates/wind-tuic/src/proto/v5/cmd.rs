@@ -3,10 +3,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use uuid::Uuid;
 
 use super::CommandType;
-use crate::UnknownCommandTypeSnafu;
+use crate::{BytesRemainingSnafu, UnknownCommandTypeSnafu};
 
 #[derive(Debug, Clone, Copy)]
-pub struct CommandCodec(CommandType);
+pub struct CommandCodec(pub CommandType);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -76,6 +76,13 @@ impl Decoder for CommandCodec {
          CommandType::Other(value) => UnknownCommandTypeSnafu { value }.fail(),
       }
    }
+
+   fn decode_eof(&mut self, buf: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+      match self.decode(buf) {
+         Ok(None) => BytesRemainingSnafu.fail(),
+         v => v,
+      }
+   }
 }
 
 #[cfg(feature = "client")]
@@ -110,6 +117,98 @@ impl Encoder<Command> for CommandCodec {
          }
          Command::Heartbeat => {}
       }
+      Ok(())
+   }
+}
+
+#[cfg(test)]
+mod test {
+   use futures_util::SinkExt as _;
+   use tokio_stream::StreamExt as _;
+   use tokio_util::codec::{FramedRead, FramedWrite};
+   use uuid::Uuid;
+
+   use super::Command;
+   use crate::{Error, proto::CommandCodec};
+
+   /// Usual test
+   #[tokio::test]
+   async fn test_cmd_1() -> eyre::Result<()> {
+      let vars = vec![
+         Command::Authenticate {
+            uuid:  Uuid::parse_str("02f09a3f-1624-3b1d-8409-44eff7708208")?,
+            token: [1; 32],
+         },
+         Command::Connect,
+         Command::Packet {
+            assos_id:   123,
+            pkt_id:     123,
+            frag_total: 5,
+            frag_id:    1,
+            size:       8,
+         },
+         Command::Dissociate { assos_id: 23 },
+         Command::Heartbeat,
+      ];
+      for cmd in vars {
+         let buffer = Vec::with_capacity(128);
+         let mut writer = FramedWrite::new(buffer, CommandCodec((&cmd).into()));
+         let mut expect_len = 0;
+         match cmd {
+            Command::Authenticate { .. } => expect_len = expect_len + 16 + 32,
+            Command::Connect => expect_len = expect_len + 0,
+            Command::Packet { .. } => expect_len = expect_len + 8,
+            Command::Dissociate { .. } => expect_len = expect_len + 2,
+            Command::Heartbeat => expect_len = expect_len + 0,
+         }
+         writer.send(cmd.clone()).await?;
+         assert_eq!(writer.get_ref().len(), expect_len);
+         let buffer = writer.get_ref();
+         let mut reader = FramedRead::new(buffer.as_slice(), CommandCodec((&cmd).into()));
+
+         let frame = reader.next().await.unwrap()?;
+         assert_eq!(cmd, frame);
+      }
+
+      Ok(())
+   }
+   /// Data not fully arrive
+   #[tokio::test]
+   async fn test_cmd_2() -> eyre::Result<()> {
+      let vars = vec![
+         Command::Authenticate {
+            uuid:  Uuid::parse_str("02f09a3f-1624-3b1d-8409-44eff7708208")?,
+            token: [1; 32],
+         },
+         Command::Packet {
+            assos_id:   123,
+            pkt_id:     123,
+            frag_total: 5,
+            frag_id:    1,
+            size:       8,
+         },
+         Command::Dissociate { assos_id: 23 },
+      ];
+      for cmd in vars {
+         let buffer = Vec::with_capacity(128);
+         let mut writer = FramedWrite::new(buffer, CommandCodec((&cmd).into()));
+         writer.send(cmd.clone()).await?;
+         let mut buffer = writer.into_inner();
+         let full_len = buffer.len();
+         let mut half_b = buffer.split_off(full_len / 2 as usize);
+         let mut half_a = buffer;
+         {
+            let mut reader = FramedRead::new(half_a.as_slice(), CommandCodec((&cmd).into()));
+            assert!(matches!(
+               reader.next().await.unwrap().unwrap_err(),
+               Error::BytesRemaining
+            ));
+         }
+         half_a.append(&mut half_b);
+         let mut reader = FramedRead::new(half_a.as_slice(), CommandCodec((&cmd).into()));
+         assert_eq!(reader.next().await.unwrap()?, cmd);
+      }
+
       Ok(())
    }
 }
