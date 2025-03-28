@@ -6,7 +6,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.6"
+version = "0.1.0"
 repository = "https://github.com/zephry-works/wind"
 edition = "2024"
 description = "Placeholder"

@@ -6,7 +6,10 @@ use snafu::{ResultExt, ensure};
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{
-   BytesRemainingSnafu, DomainTooLongSnafu, FailParseDomainSnafu, UnknownAddressTypeSnafu,
+   ProtoError,
+   proto::{
+      BytesRemainingSnafu, DomainTooLongSnafu, FailParseDomainSnafu, UnknownAddressTypeSnafu,
+   },
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -33,7 +36,7 @@ pub enum AddressType {
 // https://github.com/zephry-works/wind/blob/main/crates/wind-tuic/SPEC.md#5-address-encoding
 #[cfg(feature = "decode")]
 impl Decoder for AddressCodec {
-   type Error = crate::Error;
+   type Error = ProtoError;
    type Item = Address;
 
    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -104,7 +107,7 @@ impl Decoder for AddressCodec {
 
 #[cfg(feature = "encode")]
 impl Encoder<Address> for AddressCodec {
-   type Error = crate::Error;
+   type Error = ProtoError;
 
    fn encode(&mut self, item: Address, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
       match item {
@@ -148,7 +151,7 @@ mod test {
    use tokio_util::codec::{FramedRead, FramedWrite};
 
    use super::{Address, AddressCodec};
-   use crate::Error;
+   use crate::proto::ProtoError;
 
    /// Usual test
    #[tokio::test]
@@ -202,7 +205,7 @@ mod test {
             let mut reader = FramedRead::new(half_a.as_slice(), AddressCodec);
             assert!(matches!(
                reader.next().await.unwrap().unwrap_err(),
-               Error::BytesRemaining
+               ProtoError::BytesRemaining
             ));
          }
          half_a.append(&mut half_b);

@@ -3,7 +3,7 @@ use tokio_util::codec::{Decoder, Encoder};
 use uuid::Uuid;
 
 use super::CommandType;
-use crate::{BytesRemainingSnafu, UnknownCommandTypeSnafu};
+use crate::proto::{BytesRemainingSnafu, UnknownCommandTypeSnafu};
 
 #[derive(Debug, Clone, Copy)]
 pub struct CommandCodec(pub CommandType);
@@ -31,7 +31,7 @@ pub enum Command {
 // https://github.com/zephry-works/wind/blob/main/crates/wind-tuic/SPEC.md#3-command-specifications
 #[cfg(feature = "decode")]
 impl Decoder for CommandCodec {
-   type Error = crate::Error;
+   type Error = crate::proto::ProtoError;
    type Item = Command;
 
    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -65,8 +65,10 @@ impl Decoder for CommandCodec {
             if src.len() < 2 {
                return Ok(None);
             }
-            let assos_id = src.get_u16();
-            Ok(Some(Command::Dissociate { assos_id }))
+
+            Ok(Some(Command::Dissociate {
+               assos_id: src.get_u16(),
+            }))
          }
          CommandType::Heartbeat => Ok(Some(Command::Heartbeat)),
          CommandType::Other(value) => UnknownCommandTypeSnafu { value }.fail(),
@@ -83,7 +85,7 @@ impl Decoder for CommandCodec {
 
 #[cfg(feature = "encode")]
 impl Encoder<Command> for CommandCodec {
-   type Error = crate::Error;
+   type Error = crate::proto::ProtoError;
 
    fn encode(&mut self, item: Command, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
       match item {
@@ -125,7 +127,7 @@ mod test {
    use uuid::Uuid;
 
    use super::Command;
-   use crate::{Error, proto::CommandCodec};
+   use crate::proto::{CommandCodec, ProtoError};
 
    /// Usual test
    #[tokio::test]
@@ -197,7 +199,7 @@ mod test {
             let mut reader = FramedRead::new(half_a.as_slice(), CommandCodec((&cmd).into()));
             assert!(matches!(
                reader.next().await.unwrap().unwrap_err(),
-               Error::BytesRemaining
+               ProtoError::BytesRemaining
             ));
          }
          half_a.append(&mut half_b);

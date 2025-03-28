@@ -7,16 +7,22 @@ description.workspace = true
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["server", "client"]
+default = ["server", "client", "aws-lc-rs"]
 decode = []
 encode = []
 server = ["decode"]
 client = ["encode"]
+aws-lc-rs = ["rustls/aws-lc-rs"]
+ring = ["rustls/ring"]
 
 [dependencies]
+wind-core = { path = "../wind-core"}
+
+
 # Async
 tokio = { version = "*", default-features = false }
 tokio-util = { version = "*", features = ["codec"] }
+quinn = "*"
 
 tokio-stream = "*"
 futures-util = { version = "*", default-features = false, features = ["sink"] }
@@ -28,6 +34,13 @@ hex = { package = "const-hex", version = "1" }
 # Patterns
 num_enum = "0.7"
 snafu = "0.8"
+enum_dispatch = "*"
+secrecy = "0.10"
+
+# TLS
+tokio-rustls = { version = "*", default-features = false, features = ["logging"] }
+rustls = { version  = "*", default-features = false }
+rustls-platform-verifier = "*"
 
 [dev-dependencies]
 tokio = { version = "*", default-features = false, features = ["macros", "rt"] }

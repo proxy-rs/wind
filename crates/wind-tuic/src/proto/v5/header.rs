@@ -4,7 +4,7 @@ use snafu::ensure;
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::{Command, VER};
-use crate::{BytesRemainingSnafu, UnknownCommandTypeSnafu, VersionDismatchSnafu};
+use crate::proto::{BytesRemainingSnafu, UnknownCommandTypeSnafu, VersionDismatchSnafu};
 
 #[derive(Debug, Clone, Copy)]
 pub struct HeaderCodec;
@@ -38,7 +38,7 @@ impl Header {
 
 #[cfg(feature = "decode")]
 impl Decoder for HeaderCodec {
-   type Error = crate::Error;
+   type Error = crate::proto::ProtoError;
    type Item = Header;
 
    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -65,7 +65,7 @@ impl Decoder for HeaderCodec {
 
 #[cfg(feature = "encode")]
 impl Encoder<Header> for HeaderCodec {
-   type Error = crate::Error;
+   type Error = crate::proto::ProtoError;
 
    fn encode(&mut self, item: Header, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
       dst.reserve(2);
@@ -93,10 +93,7 @@ mod test {
    use tokio_stream::StreamExt as _;
    use tokio_util::codec::{FramedRead, FramedWrite};
 
-   use crate::{
-      Error,
-      proto::{CommandType, Header, HeaderCodec, v5::VER},
-   };
+   use crate::proto::{CommandType, Header, HeaderCodec, ProtoError, v5::VER};
 
    /// Usual test
    #[tokio::test]
@@ -137,7 +134,7 @@ mod test {
          let mut reader = FramedRead::new(half_a.as_slice(), HeaderCodec);
          assert!(matches!(
             reader.next().await.unwrap().unwrap_err(),
-            Error::BytesRemaining
+            ProtoError::BytesRemaining
          ));
       }
       half_a.append(&mut half_b);

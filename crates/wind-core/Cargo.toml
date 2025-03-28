@@ -5,3 +5,8 @@ repository.workspace = true
 edition.workspace = true
 description.workspace = true
 license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio = { version = "*", default-features = false }
+
+serde = { version = "*", features = ["derive"] }

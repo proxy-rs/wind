@@ -1,40 +1,33 @@
+use std::{backtrace::Backtrace, net::SocketAddr};
+
 pub mod proto;
 
-use std::{backtrace::Backtrace, str::Utf8Error};
+pub mod tls;
 
-use snafu::prelude::*;
+#[cfg(feature = "server")]
+pub mod inbound;
+
+#[cfg(feature = "client")]
+pub mod outbound;
+
+pub mod ext;
+
+use proto::ProtoError;
+use snafu::{IntoError, prelude::*};
 
 #[derive(Debug, Snafu)]
-pub enum Error {
-   VersionDismatch {
-      expect:    u8,
-      current:   u8,
-      backtrace: Backtrace,
+#[snafu(visibility(pub(crate)))]
+pub(crate) enum Error {
+   Proto {
+      #[snafu(backtrace)]
+      source: ProtoError,
    },
-   #[snafu(display("Unknown command type {value}"))]
-   UnknownCommandType {
-      value:     u8,
-      backtrace: Backtrace,
+   BindSocket {
+      socket_addr: SocketAddr,
+      source:      std::io::Error,
+      backtrace:   Backtrace,
    },
-   #[snafu(display("Unable to decode address due to type {value}"))]
-   UnknownAddressType {
-      value:     u8,
-      backtrace: Backtrace,
-   },
-   FailParseDomain {
-      // HEX
-      raw:       String,
-      source:    Utf8Error,
-      backtrace: Backtrace,
-   },
-   DomainTooLong {
-      domain:    String,
-      backtrace: Backtrace,
-   },
-   // Caller should yield
-   BytesRemaining,
    Io {
-      // #[snafu(backtrace)]
       source:    std::io::Error,
       backtrace: Backtrace,
    },
@@ -42,13 +35,10 @@ pub enum Error {
 
 impl From<std::io::Error> for Error {
    #[inline(always)]
-   fn from(_source: std::io::Error) -> Self {
-      #[cfg(debug_assertions)]
-      panic!("IO error should not be created by From<io::Error>");
-      #[cfg(not(debug_assertions))]
-      {
-         use snafu::IntoError as _;
-         IoSnafu.into_error(_source)
-      }
+   fn from(value: std::io::Error) -> Self {
+      IoSnafu.into_error(value)
    }
 }
+
+#[tokio::test]
+async fn test_main() {}
