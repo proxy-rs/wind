@@ -2,11 +2,11 @@ use bytes::{Buf, BufMut as _};
 use tokio_util::codec::{Decoder, Encoder};
 use uuid::Uuid;
 
-use super::CommandType;
+use super::CmdType;
 use crate::proto::{BytesRemainingSnafu, UnknownCommandTypeSnafu};
 
 #[derive(Debug, Clone, Copy)]
-pub struct CommandCodec(pub CommandType);
+pub struct CmdCodec(pub CmdType);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -30,13 +30,13 @@ pub enum Command {
 
 // https://github.com/proxy-rs/wind/blob/main/crates/wind-tuic/SPEC.md#3-command-specifications
 #[cfg(feature = "decode")]
-impl Decoder for CommandCodec {
+impl Decoder for CmdCodec {
    type Error = crate::proto::ProtoError;
    type Item = Command;
 
    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
       match self.0 {
-         CommandType::Auth => {
+         CmdType::Auth => {
             if src.len() < 16 + 32 {
                return Ok(None);
             }
@@ -47,8 +47,8 @@ impl Decoder for CommandCodec {
             src.copy_to_slice(&mut token);
             Ok(Some(Command::Auth { uuid, token }))
          }
-         CommandType::Connect => Ok(Some(Command::Connect)),
-         CommandType::Packet => {
+         CmdType::Connect => Ok(Some(Command::Connect)),
+         CmdType::Packet => {
             if src.len() < 8 {
                return Ok(None);
             }
@@ -61,7 +61,7 @@ impl Decoder for CommandCodec {
                size:       src.get_u16(),
             }))
          }
-         CommandType::Dissociate => {
+         CmdType::Dissociate => {
             if src.len() < 2 {
                return Ok(None);
             }
@@ -70,8 +70,8 @@ impl Decoder for CommandCodec {
                assos_id: src.get_u16(),
             }))
          }
-         CommandType::Heartbeat => Ok(Some(Command::Heartbeat)),
-         CommandType::Other(value) => UnknownCommandTypeSnafu { value }.fail(),
+         CmdType::Heartbeat => Ok(Some(Command::Heartbeat)),
+         CmdType::Other(value) => UnknownCommandTypeSnafu { value }.fail(),
       }
    }
 
@@ -84,7 +84,7 @@ impl Decoder for CommandCodec {
 }
 
 #[cfg(feature = "encode")]
-impl Encoder<Command> for CommandCodec {
+impl Encoder<Command> for CmdCodec {
    type Error = crate::proto::ProtoError;
 
    fn encode(&mut self, item: Command, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
@@ -127,7 +127,7 @@ mod test {
    use uuid::Uuid;
 
    use super::Command;
-   use crate::proto::{CommandCodec, ProtoError};
+   use crate::proto::{CmdCodec, ProtoError};
 
    /// Usual test
    #[tokio::test]
@@ -150,7 +150,7 @@ mod test {
       ];
       for cmd in vars {
          let buffer = Vec::with_capacity(128);
-         let mut writer = FramedWrite::new(buffer, CommandCodec((&cmd).into()));
+         let mut writer = FramedWrite::new(buffer, CmdCodec((&cmd).into()));
          let mut expect_len = 0;
          match cmd {
             Command::Auth { .. } => expect_len = expect_len + 16 + 32,
@@ -162,7 +162,7 @@ mod test {
          writer.send(cmd.clone()).await?;
          assert_eq!(writer.get_ref().len(), expect_len);
          let buffer = writer.get_ref();
-         let mut reader = FramedRead::new(buffer.as_slice(), CommandCodec((&cmd).into()));
+         let mut reader = FramedRead::new(buffer.as_slice(), CmdCodec((&cmd).into()));
 
          let frame = reader.next().await.unwrap()?;
          assert_eq!(cmd, frame);
@@ -189,21 +189,21 @@ mod test {
       ];
       for cmd in vars {
          let buffer = Vec::with_capacity(128);
-         let mut writer = FramedWrite::new(buffer, CommandCodec((&cmd).into()));
+         let mut writer = FramedWrite::new(buffer, CmdCodec((&cmd).into()));
          writer.send(cmd.clone()).await?;
          let mut buffer = writer.into_inner();
          let full_len = buffer.len();
          let mut half_b = buffer.split_off(full_len / 2 as usize);
          let mut half_a = buffer;
          {
-            let mut reader = FramedRead::new(half_a.as_slice(), CommandCodec((&cmd).into()));
+            let mut reader = FramedRead::new(half_a.as_slice(), CmdCodec((&cmd).into()));
             assert!(matches!(
                reader.next().await.unwrap().unwrap_err(),
                ProtoError::BytesRemaining
             ));
          }
          half_a.append(&mut half_b);
-         let mut reader = FramedRead::new(half_a.as_slice(), CommandCodec((&cmd).into()));
+         let mut reader = FramedRead::new(half_a.as_slice(), CmdCodec((&cmd).into()));
          assert_eq!(reader.next().await.unwrap()?, cmd);
       }
 

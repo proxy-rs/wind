@@ -42,6 +42,7 @@ num_enum = "0.7"
 snafu = "0.8"
 enum_dispatch = "*"
 secrecy = "0.10"
+pin-project = "1"
 
 # TLS
 tokio-rustls = { version = "*", default-features = false, features = ["logging"] }

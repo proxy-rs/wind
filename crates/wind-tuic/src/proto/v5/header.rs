@@ -12,12 +12,12 @@ pub struct HeaderCodec;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
    pub version: u8,
-   pub command: CommandType,
+   pub command: CmdType,
 }
 
 #[derive(IntoPrimitive, FromPrimitive, Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
-pub enum CommandType {
+pub enum CmdType {
    Auth       = 0,
    Connect    = 1,
    Packet     = 2,
@@ -28,7 +28,7 @@ pub enum CommandType {
 }
 
 impl Header {
-   pub fn new(command: CommandType) -> Self {
+   pub fn new(command: CmdType) -> Self {
       Self {
          version: VER,
          command,
@@ -48,9 +48,9 @@ impl Decoder for HeaderCodec {
       let ver = src.get_u8();
       ensure!(ver == VER, VersionDismatchSnafu { expect: VER, current: ver });
 
-      let cmd = CommandType::from(src.get_u8());
+      let cmd = CmdType::from(src.get_u8());
 
-      ensure!(!matches!(cmd, CommandType::Other(..)), UnknownCommandTypeSnafu { value: u8::from(cmd) });
+      ensure!(!matches!(cmd, CmdType::Other(..)), UnknownCommandTypeSnafu { value: u8::from(cmd) });
 
       Ok(Some(Header::new(cmd)))
    }
@@ -75,14 +75,14 @@ impl Encoder<Header> for HeaderCodec {
    }
 }
 
-impl From<&Command> for CommandType {
+impl From<&Command> for CmdType {
    fn from(value: &Command) -> Self {
       match value {
-         Command::Auth { .. } => CommandType::Auth,
-         Command::Connect => CommandType::Connect,
-         Command::Packet { .. } => CommandType::Packet,
-         Command::Dissociate { .. } => CommandType::Dissociate,
-         Command::Heartbeat => CommandType::Heartbeat,
+         Command::Auth { .. } => CmdType::Auth,
+         Command::Connect => CmdType::Connect,
+         Command::Packet { .. } => CmdType::Packet,
+         Command::Dissociate { .. } => CmdType::Dissociate,
+         Command::Heartbeat => CmdType::Heartbeat,
       }
    }
 }
@@ -93,14 +93,14 @@ mod test {
    use tokio_stream::StreamExt as _;
    use tokio_util::codec::{FramedRead, FramedWrite};
 
-   use crate::proto::{CommandType, Header, HeaderCodec, ProtoError, v5::VER};
+   use crate::proto::{CmdType, Header, HeaderCodec, ProtoError, v5::VER};
 
    /// Usual test
    #[tokio::test]
    async fn test_header_1() -> eyre::Result<()> {
       let header = Header {
          version: VER,
-         command: CommandType::Auth,
+         command: CmdType::Auth,
       };
       let buffer = Vec::with_capacity(2);
       let mut writer = FramedWrite::new(buffer, HeaderCodec);
@@ -121,7 +121,7 @@ mod test {
    async fn test_header_2() -> eyre::Result<()> {
       let header = Header {
          version: VER,
-         command: CommandType::Auth,
+         command: CmdType::Auth,
       };
       let buffer = Vec::with_capacity(2);
       let mut writer = FramedWrite::new(buffer, HeaderCodec);

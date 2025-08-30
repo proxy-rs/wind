@@ -4,6 +4,7 @@ use bytes::{Buf, BufMut};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use snafu::{ResultExt, ensure};
 use tokio_util::codec::{Decoder, Encoder};
+use wind_core::types::TargetAddr;
 
 use crate::{
    ProtoError,
@@ -21,6 +22,15 @@ pub enum Address {
    Domain(String, u16),
    IPv4(Ipv4Addr, u16),
    IPv6(Ipv6Addr, u16),
+}
+impl From<TargetAddr> for Address {
+   fn from(value: TargetAddr) -> Self {
+      match value {
+         TargetAddr::Domain(s, port) => Self::Domain(s, port),
+         TargetAddr::IPv4(addr, port) => Self::IPv4(addr, port),
+         TargetAddr::IPv6(addr, port) => Self::IPv6(addr, port),
+      }
+   }
 }
 
 #[derive(IntoPrimitive, FromPrimitive, Copy, Clone, Debug, PartialEq)]

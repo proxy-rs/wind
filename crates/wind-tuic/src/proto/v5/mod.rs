@@ -9,7 +9,9 @@ pub use cmd::*;
 mod addr;
 pub use addr::*;
 use snafu::ResultExt;
+use tokio::io::AsyncWriteExt;
 use tokio_util::codec::FramedWrite;
+use wind_core::{AbstractTcpStream, io::quinn::QuinnCompat, types::TargetAddr};
 
 use crate::{Error, SendDatagramSnafu};
 
@@ -33,6 +35,11 @@ pub trait TuicClientConnection {
       secret: &[u8],
    ) -> impl Future<Output = Result<(), Error>> + Send;
    fn send_heartbeat(&self) -> impl Future<Output = Result<(), Error>> + Send;
+   fn open_tcp(
+      &self,
+      addr: &TargetAddr,
+      stream: impl AbstractTcpStream,
+   ) -> impl Future<Output = Result<(usize, usize), Error>> + Send;
 }
 
 impl TuicClientConnection for quinn::Connection {
@@ -43,7 +50,7 @@ impl TuicClientConnection for quinn::Connection {
       let auth_cmd = Command::Auth { uuid: *uuid, token };
       let mut uni = self.open_uni().await?;
 
-      let mut writer = FramedWrite::with_capacity(&mut uni, CommandCodec(CommandType::Auth), 50);
+      let mut writer = FramedWrite::with_capacity(&mut uni, CmdCodec(CmdType::Auth), 50);
       writer.send(auth_cmd).await?;
 
       Ok(())
@@ -52,11 +59,33 @@ impl TuicClientConnection for quinn::Connection {
    async fn send_heartbeat(&self) -> Result<(), Error> {
       let hb_cmd = Command::Heartbeat;
 
-      let mut writer = FramedWrite::new(Vec::with_capacity(2), CommandCodec(CommandType::Auth));
+      let mut writer = FramedWrite::new(Vec::with_capacity(2), CmdCodec(CmdType::Auth));
       writer.send(hb_cmd).await?;
       self
          .send_datagram(writer.into_inner().into())
          .context(SendDatagramSnafu)?;
       Ok(())
+   }
+
+   async fn open_tcp(
+      &self,
+      addr: &TargetAddr,
+      mut stream: impl AbstractTcpStream,
+   ) -> Result<(usize, usize), Error> {
+      let (mut send, recv) = self.open_bi().await?;
+      FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Connect), 2)
+         .feed(Command::Connect)
+         .await?;
+      FramedWrite::new(&mut send, AddressCodec)
+         .feed(addr.to_owned().into())
+         .await?;
+
+      send.flush().await?;
+      let (a, b, err) =
+         wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
+      if let Some(e) = err {
+         return Err(e.into());
+      }
+      Ok((a, b))
    }
 }

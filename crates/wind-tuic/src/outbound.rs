@@ -4,18 +4,13 @@ use std::{
    time::Duration,
 };
 
-use futures_util::SinkExt;
 use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::{net::UdpSocket, task::JoinHandle};
-use tokio_util::codec::FramedWrite;
 use uuid::Uuid;
 use wind_core::{AbstractOutbound, AbstractTcpStream};
 
-use crate::{
-   BindSocketSnafu, Error, ExportKeyingMaterialSnafu, ProtoSnafu, QuicConnectSnafu,
-   proto::{Command, CommandCodec, CommandType, TuicClientConnection as _},
-};
+use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
 
 pub struct TuicOutboundOpts {
    // TODO, it's not safe
@@ -24,6 +19,8 @@ pub struct TuicOutboundOpts {
    pub heartbeat:          Duration,
    pub gc_interval:        Duration,
    pub gc_lifetime:        Duration,
+   pub skip_cert_verify:   bool,
+   pub alpn:               Vec<String>,
 }
 
 pub struct TuicOutbound {
@@ -53,12 +50,8 @@ impl TuicOutbound {
             .unwrap();
       }
       let client_config = {
-         let mut tls_config = super::tls::tls_config()?;
+         let tls_config = super::tls::tls_config(&server_name, &opts)?;
 
-         tls_config.alpn_protocols = vec![String::from("h3")]
-            .into_iter()
-            .map(|alpn| alpn.into_bytes())
-            .collect();
          let mut client_config = quinn::ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(tls_config).unwrap(),
          ));
