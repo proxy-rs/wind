@@ -12,17 +12,23 @@ decode = []
 encode = []
 server = ["decode"]
 client = ["encode"]
-aws-lc-rs = ["rustls/aws-lc-rs"]
-ring = ["rustls/ring"]
+aws-lc-rs = [
+    "rustls/aws-lc-rs",
+    "quinn/rustls-aws-lc-rs"
+]
+ring = [
+    "rustls/ring",
+    "quinn/rustls-ring"
+]
 
 [dependencies]
 wind-core = { path = "../wind-core"}
 
 
 # Async
-tokio = { version = "*", default-features = false }
+tokio = { version = "*", default-features = false, features = ["net"] }
 tokio-util = { version = "*", features = ["codec"] }
-quinn = "*"
+quinn = { version = "*", default-features = false, features = ["runtime-tokio"]}
 
 tokio-stream = "*"
 futures-util = { version = "*", default-features = false, features = ["sink"] }
@@ -40,7 +46,7 @@ secrecy = "0.10"
 # TLS
 tokio-rustls = { version = "*", default-features = false, features = ["logging"] }
 rustls = { version  = "*", default-features = false }
-rustls-platform-verifier = "*"
+rustls-platform-verifier = { version = "*", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "*", default-features = false, features = ["macros", "rt"] }

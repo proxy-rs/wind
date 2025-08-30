@@ -18,11 +18,11 @@ pub struct Header {
 #[derive(IntoPrimitive, FromPrimitive, Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum CommandType {
-   Authenticate = 0,
-   Connect      = 1,
-   Packet       = 2,
-   Dissociate   = 3,
-   Heartbeat    = 4,
+   Auth       = 0,
+   Connect    = 1,
+   Packet     = 2,
+   Dissociate = 3,
+   Heartbeat  = 4,
    #[num_enum(catch_all)]
    Other(u8),
 }
@@ -78,7 +78,7 @@ impl Encoder<Header> for HeaderCodec {
 impl From<&Command> for CommandType {
    fn from(value: &Command) -> Self {
       match value {
-         Command::Authenticate { .. } => CommandType::Authenticate,
+         Command::Auth { .. } => CommandType::Auth,
          Command::Connect => CommandType::Connect,
          Command::Packet { .. } => CommandType::Packet,
          Command::Dissociate { .. } => CommandType::Dissociate,
@@ -100,7 +100,7 @@ mod test {
    async fn test_header_1() -> eyre::Result<()> {
       let header = Header {
          version: VER,
-         command: CommandType::Authenticate,
+         command: CommandType::Auth,
       };
       let buffer = Vec::with_capacity(2);
       let mut writer = FramedWrite::new(buffer, HeaderCodec);
@@ -121,7 +121,7 @@ mod test {
    async fn test_header_2() -> eyre::Result<()> {
       let header = Header {
          version: VER,
-         command: CommandType::Authenticate,
+         command: CommandType::Auth,
       };
       let buffer = Vec::with_capacity(2);
       let mut writer = FramedWrite::new(buffer, HeaderCodec);

@@ -4,13 +4,18 @@ use std::{
    time::Duration,
 };
 
+use futures_util::SinkExt;
 use quinn::TokioRuntime;
 use snafu::ResultExt;
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, task::JoinHandle};
+use tokio_util::codec::FramedWrite;
 use uuid::Uuid;
 use wind_core::{AbstractOutbound, AbstractTcpStream};
 
-use crate::{BindSocketSnafu, Error};
+use crate::{
+   BindSocketSnafu, Error, ExportKeyingMaterialSnafu, ProtoSnafu, QuicConnectSnafu,
+   proto::{Command, CommandCodec, CommandType, TuicClientConnection as _},
+};
 
 pub struct TuicOutboundOpts {
    // TODO, it's not safe
@@ -26,6 +31,8 @@ pub struct TuicOutbound {
    pub peer_addr:   SocketAddr,
    pub server_name: String,
    pub opts:        TuicOutboundOpts,
+   pub connection:  quinn::Connection,
+   handle:          Option<JoinHandle<Result<(), Error>>>,
 }
 
 impl TuicOutbound {
@@ -46,7 +53,7 @@ impl TuicOutbound {
             .unwrap();
       }
       let client_config = {
-         let mut tls_config = super::tls::tls_config();
+         let mut tls_config = super::tls::tls_config()?;
 
          tls_config.alpn_protocols = vec![String::from("h3")]
             .into_iter()
@@ -74,19 +81,40 @@ impl TuicOutbound {
          Arc::new(TokioRuntime),
       )?;
       endpoint.set_default_client_config(client_config);
+      let connection = endpoint
+         .connect(peer_addr, &server_name)
+         .context(QuicConnectSnafu {
+            addr:        peer_addr,
+            server_name: server_name.clone(),
+         })?
+         .await?;
+      connection.send_auth(&opts.auth.0, &opts.auth.1).await?;
+
       Ok(Self {
          endpoint,
          peer_addr,
          server_name,
          opts,
+         handle: None,
+         connection,
       })
+   }
+
+   pub async fn start(&mut self, rt: tokio::runtime::Runtime) {
+      let handle: JoinHandle<Result<(), Error>> = rt.spawn(async move { Ok(()) });
+      self.handle = Some(handle)
    }
 }
 
 pub struct TuicTcpStream;
 
 impl AbstractOutbound for TuicOutbound {
-   async fn handle_tcp(_dialer: Option<impl AbstractOutbound>) -> impl AbstractTcpStream {
+   async fn handle_tcp(
+      self: &Self,
+      stream: impl AbstractTcpStream,
+      _dialer: Option<impl AbstractOutbound>,
+   ) -> impl AbstractTcpStream {
+      let _ = _dialer;
       TuicTcpStream
    }
 }

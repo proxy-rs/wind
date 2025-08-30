@@ -10,7 +10,7 @@ pub struct CommandCodec(pub CommandType);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-   Authenticate {
+   Auth {
       uuid:  uuid::Uuid,
       token: [u8; 32],
    },
@@ -28,7 +28,7 @@ pub enum Command {
    Heartbeat,
 }
 
-// https://github.com/zephry-works/wind/blob/main/crates/wind-tuic/SPEC.md#3-command-specifications
+// https://github.com/proxy-rs/wind/blob/main/crates/wind-tuic/SPEC.md#3-command-specifications
 #[cfg(feature = "decode")]
 impl Decoder for CommandCodec {
    type Error = crate::proto::ProtoError;
@@ -36,7 +36,7 @@ impl Decoder for CommandCodec {
 
    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
       match self.0 {
-         CommandType::Authenticate => {
+         CommandType::Auth => {
             if src.len() < 16 + 32 {
                return Ok(None);
             }
@@ -45,7 +45,7 @@ impl Decoder for CommandCodec {
             let uuid = Uuid::from_bytes(uuid);
             let mut token = [0; 32];
             src.copy_to_slice(&mut token);
-            Ok(Some(Command::Authenticate { uuid, token }))
+            Ok(Some(Command::Auth { uuid, token }))
          }
          CommandType::Connect => Ok(Some(Command::Connect)),
          CommandType::Packet => {
@@ -89,7 +89,7 @@ impl Encoder<Command> for CommandCodec {
 
    fn encode(&mut self, item: Command, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
       match item {
-         Command::Authenticate { uuid, token } => {
+         Command::Auth { uuid, token } => {
             dst.reserve(16 + 32);
             dst.put_slice(uuid.as_bytes());
             dst.put_slice(&token);
@@ -133,7 +133,7 @@ mod test {
    #[tokio::test]
    async fn test_cmd_1() -> eyre::Result<()> {
       let vars = vec![
-         Command::Authenticate {
+         Command::Auth {
             uuid:  Uuid::parse_str("02f09a3f-1624-3b1d-8409-44eff7708208")?,
             token: [1; 32],
          },
@@ -153,7 +153,7 @@ mod test {
          let mut writer = FramedWrite::new(buffer, CommandCodec((&cmd).into()));
          let mut expect_len = 0;
          match cmd {
-            Command::Authenticate { .. } => expect_len = expect_len + 16 + 32,
+            Command::Auth { .. } => expect_len = expect_len + 16 + 32,
             Command::Connect => expect_len = expect_len + 0,
             Command::Packet { .. } => expect_len = expect_len + 8,
             Command::Dissociate { .. } => expect_len = expect_len + 2,
@@ -174,7 +174,7 @@ mod test {
    #[tokio::test]
    async fn test_cmd_2() -> eyre::Result<()> {
       let vars = vec![
-         Command::Authenticate {
+         Command::Auth {
             uuid:  Uuid::parse_str("02f09a3f-1624-3b1d-8409-44eff7708208")?,
             token: [1; 32],
          },

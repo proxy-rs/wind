@@ -7,6 +7,6 @@ description.workspace = true
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+pin-project = "1"
 tokio = { version = "*", default-features = false }
-
 serde = { version = "*", features = ["derive"] }

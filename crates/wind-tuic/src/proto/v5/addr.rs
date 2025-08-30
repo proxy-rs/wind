@@ -33,7 +33,7 @@ pub enum AddressType {
    #[num_enum(catch_all)]
    Other(u8),
 }
-// https://github.com/zephry-works/wind/blob/main/crates/wind-tuic/SPEC.md#5-address-encoding
+// https://github.com/proxy-rs/wind/blob/main/crates/wind-tuic/SPEC.md#5-address-encoding
 #[cfg(feature = "decode")]
 impl Decoder for AddressCodec {
    type Error = ProtoError;
