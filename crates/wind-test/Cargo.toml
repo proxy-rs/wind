@@ -1,0 +1,26 @@
+[package]
+name = "wind-test"
+version.workspace = true
+repository.workspace = true
+edition.workspace = true
+description.workspace = true
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+wind-core = { path = "../wind-core"}
+
+# Async
+tokio = { version = "*", default-features = false, features = ["net"] }
+tokio-util = { version = "*", features = ["codec"] }
+tokio-stream = "*"
+futures-util = { version = "*", default-features = false, features = ["sink"] }
+
+criterion = "0.4"
+[dev-dependencies]
+tokio = { version = "*", default-features = false, features = ["macros", "rt"] }
+eyre = "*"
+
+
+[[bench]]
+name = "arc_bench"
+harness = false
