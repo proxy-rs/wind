@@ -1,8 +1,12 @@
-use crate::AbstractTcpStream;
+use crate::{AbstractTcpStream, types::TargetAddr};
 
-pub trait AbstractOutbound {
-    /// TCP traffic which needs handled by outbound
-    fn listen(
-       &self,
-    ) -> impl Future<Output = ()> + Send;
- }
+pub trait FutResult<T> = Future<Output = eyre::Result<T>> + Send + Sync;
+
+pub trait AbstractInbound {
+   /// Should not return!
+   fn listen(&self, cb: &impl InboundCallback) -> impl FutResult<()>;
+}
+
+pub trait InboundCallback: Send + Sync {
+   fn invoke(&self, target_addr: TargetAddr, stream: impl AbstractTcpStream) -> impl FutResult<()>;
+}

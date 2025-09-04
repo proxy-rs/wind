@@ -49,8 +49,12 @@ impl TuicClientConnection for quinn::Connection {
 
       let auth_cmd = Command::Auth { uuid: *uuid, token };
       let mut uni = self.open_uni().await?;
-      FramedWrite::with_capacity(&mut uni, HeaderCodec, 2).send(Header::new(CmdType::Auth)).await?;
-      FramedWrite::with_capacity(&mut uni, CmdCodec(CmdType::Auth), 50).send(auth_cmd).await?;
+      FramedWrite::with_capacity(&mut uni, HeaderCodec, 2)
+         .send(Header::new(CmdType::Auth))
+         .await?;
+      FramedWrite::with_capacity(&mut uni, CmdCodec(CmdType::Auth), 50)
+         .send(auth_cmd)
+         .await?;
 
       Ok(())
    }

@@ -134,7 +134,8 @@ mod test {
          skip_cert_verify:   true,
          alpn:               vec![String::from("h3")],
       };
-      let outbound = TuicOutbound::new("127.0.0.1:9443".parse()?, "localhost".to_string(), opts).await?;
+      let outbound =
+         TuicOutbound::new("127.0.0.1:9443".parse()?, "localhost".to_string(), opts).await?;
       tokio::time::sleep(Duration::from_secs(20)).await;
       Ok(())
    }
