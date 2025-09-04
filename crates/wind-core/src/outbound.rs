@@ -1,5 +1,3 @@
-use tokio::io::{AsyncRead, AsyncWrite};
-
 use crate::AbstractTcpStream;
 
 pub trait AbstractOutbound {

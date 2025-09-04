@@ -99,6 +99,3 @@ impl From<quinn::WriteError> for Error {
 		WriteSnafu.into_error(value)
 	}
 }
-
-#[tokio::test]
-async fn test_main() {}

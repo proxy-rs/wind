@@ -13,8 +13,7 @@ use wind_core::{AbstractOutbound, AbstractTcpStream};
 use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
 
 pub struct TuicOutboundOpts {
-	// TODO, it's not safe
-	auth:                   (Uuid, Arc<[u8]>),
+	pub auth:               (Uuid, Arc<[u8]>),
 	pub zero_rtt_handshake: bool,
 	pub heartbeat:          Duration,
 	pub gc_interval:        Duration,
@@ -109,34 +108,5 @@ impl AbstractOutbound for TuicOutbound {
 	) -> impl AbstractTcpStream {
 		let _ = _dialer;
 		TuicTcpStream
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use std::{sync::Arc, time::Duration};
-
-	use uuid::Uuid;
-
-	use crate::outbound::{TuicOutbound, TuicOutboundOpts};
-
-	#[tokio::test]
-	async fn test() -> eyre::Result<()> {
-		let opts = TuicOutboundOpts {
-			auth:               (
-				Uuid::parse_str("c1e6dbe2-f417-4890-994c-9ee15b926597")?,
-				Arc::from(String::from("test_passwd").into_bytes().into_boxed_slice()),
-			),
-			zero_rtt_handshake: false,
-			heartbeat:          Duration::from_secs(20),
-			gc_interval:        Duration::from_secs(20),
-			gc_lifetime:        Duration::from_secs(20),
-			skip_cert_verify:   true,
-			alpn:               vec![String::from("h3")],
-		};
-		let outbound =
-			TuicOutbound::new("127.0.0.1:9443".parse()?, "localhost".to_string(), opts).await?;
-		tokio::time::sleep(Duration::from_secs(20)).await;
-		Ok(())
 	}
 }

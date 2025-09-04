@@ -13,13 +13,10 @@ use crate::{CallbackSnafu, Error, SocksSnafu};
 
 pub struct SocksInboundOpt {
 	/// Bind on address address. eg. `127.0.0.1:1080`
-	pub listen_addr: String,
+	pub listen_addr: SocketAddr,
 
 	/// Our external IP address to be sent in reply packets (required for UDP)
 	pub public_addr: Option<std::net::IpAddr>,
-
-	/// Request timeout
-	pub request_timeout: u64,
 
 	/// Choose authentication type
 	pub auth: AuthMode,
@@ -42,7 +39,7 @@ pub struct SocksInbound {
 
 impl AbstractInbound for SocksInbound {
 	async fn listen(&self, cb: &impl InboundCallback) -> eyre::Result<()> {
-		let listener = TcpListener::bind(self.opts.listen_addr.clone()).await?;
+		let listener = TcpListener::bind(self.opts.listen_addr).await?;
 		loop {
 			match listener.accept().await {
 				Err(err) => error!(target: "[SOCKS-IN] REACTOR" , "{:?}", err),

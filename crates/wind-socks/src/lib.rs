@@ -1,4 +1,4 @@
-use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
+use std::{backtrace::Backtrace, net::SocketAddr};
 
 use fast_socks5::{ReplyError, server::SocksServerError};
 use snafu::{IntoError, Snafu};
