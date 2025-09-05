@@ -6,27 +6,17 @@ pub use header::*;
 mod cmd;
 pub use cmd::*;
 
+mod tests;
+
 mod addr;
 pub use addr::*;
 use snafu::ResultExt;
-use tokio::io::AsyncWriteExt;
 use tokio_util::codec::FramedWrite;
 use wind_core::{AbstractTcpStream, io::quinn::QuinnCompat, types::TargetAddr};
 
 use crate::{Error, SendDatagramSnafu};
 
 const VER: u8 = 5;
-
-#[test]
-fn test() {
-	use bytes::{Buf as _, BufMut as _, BytesMut};
-	let mut bytes = BytesMut::with_capacity(64);
-	bytes.put_slice(b"daadadwadwad");
-	assert_eq!(bytes.len(), {
-		bytes.advance(3);
-		bytes.len() + 3
-	})
-}
 
 pub trait TuicClientConnection {
 	fn send_auth(
@@ -60,12 +50,12 @@ impl TuicClientConnection for quinn::Connection {
 	}
 
 	async fn send_heartbeat(&self) -> Result<(), Error> {
-		let hb_cmd = Command::Heartbeat;
+		let mut buf = Vec::with_capacity(2);
+		FramedWrite::with_capacity(&mut buf, HeaderCodec, 2)
+			.send(Header::new(CmdType::Heartbeat))
+			.await?;
 
-		let mut writer = FramedWrite::new(Vec::with_capacity(2), CmdCodec(CmdType::Auth));
-		writer.send(hb_cmd).await?;
-		self.send_datagram(writer.into_inner().into())
-			.context(SendDatagramSnafu)?;
+		self.send_datagram(buf.into()).context(SendDatagramSnafu)?;
 		Ok(())
 	}
 
@@ -75,14 +65,16 @@ impl TuicClientConnection for quinn::Connection {
 		mut stream: impl AbstractTcpStream,
 	) -> Result<(usize, usize), Error> {
 		let (mut send, recv) = self.open_bi().await?;
+		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
+			.send(Header::new(CmdType::Connect))
+			.await?;
 		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Connect), 2)
-			.feed(Command::Connect)
+			.send(Command::Connect)
 			.await?;
 		FramedWrite::new(&mut send, AddressCodec)
-			.feed(addr.to_owned().into())
+			.send(addr.to_owned().into())
 			.await?;
 
-		send.flush().await?;
 		let (a, b, err) =
 			wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
 		if let Some(e) = err {

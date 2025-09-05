@@ -225,4 +225,20 @@ mod test {
 
 		Ok(())
 	}
+
+	#[tokio::test]
+	async fn hex_check() -> eyre::Result<()> {
+		let mut buffer = Vec::new();
+		let vars = vec![
+			Address::None,
+			Address::IPv4(Ipv4Addr::LOCALHOST, 80),
+			Address::IPv6(Ipv6Addr::LOCALHOST, 12),
+			Address::Domain(String::from("www.google.com"), 443),
+		];
+		FramedWrite::new(&mut buffer, AddressCodec)
+			.send(vars[1].clone())
+			.await?;
+		println!("{}", hex::encode(buffer));
+		Ok(())
+	}
 }

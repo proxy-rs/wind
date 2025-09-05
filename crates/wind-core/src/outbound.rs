@@ -1,12 +1,13 @@
-use crate::AbstractTcpStream;
+use crate::{AbstractTcpStream, types::TargetAddr};
 
 pub trait AbstractOutbound {
 	/// TCP traffic which needs handled by outbound
 	fn handle_tcp(
 		&self,
+		target_addr: TargetAddr,
 		stream: impl AbstractTcpStream,
 		via: Option<impl AbstractOutbound + Sized + Send>,
-	) -> impl Future<Output = eyre::Result<impl AbstractTcpStream>> + Send;
+	) -> impl Future<Output = eyre::Result<()>> + Send;
 }
 
 mod compat {

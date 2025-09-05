@@ -10,8 +10,6 @@ pub mod inbound;
 #[cfg(feature = "client")]
 pub mod outbound;
 
-pub mod ext;
-
 use proto::ProtoError;
 use quinn::crypto::ExportKeyingMaterialError;
 use snafu::{IntoError, prelude::*};

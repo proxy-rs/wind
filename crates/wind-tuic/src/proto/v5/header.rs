@@ -100,7 +100,7 @@ mod test {
 	async fn test_header_1() -> eyre::Result<()> {
 		let header = Header {
 			version: VER,
-			command: CmdType::Auth,
+			command: CmdType::Connect,
 		};
 		let buffer = Vec::with_capacity(2);
 		let mut writer = FramedWrite::new(buffer, HeaderCodec);

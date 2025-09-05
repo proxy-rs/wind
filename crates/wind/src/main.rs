@@ -1,10 +1,16 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
+use tracing::{info, Level};
 use uuid::Uuid;
-use wind_core::{AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound};
+use wind_core::{
+	AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound,
+	types::TargetAddr,
+};
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
 use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
+
+mod log;
 
 struct Manager {
 	inbound:  Arc<SocksInbound>,
@@ -14,11 +20,14 @@ struct Manager {
 impl InboundCallback for Manager {
 	async fn invoke(
 		&self,
-		target_addr: wind_core::types::TargetAddr,
+		target_addr: TargetAddr,
 		stream: impl wind_core::AbstractTcpStream,
 	) -> eyre::Result<()> {
-		self.outbound.handle_tcp(stream, None::<TuicOutbound>).await;
-		todo!()
+		info!(target: "[TCP-IN] START","target address {target_addr}");
+		self.outbound
+			.handle_tcp(target_addr, stream, None::<Outbounds>)
+			.await?;
+		Ok(())
 	}
 }
 
@@ -28,17 +37,20 @@ pub enum Outbounds {
 impl AbstractOutbound for Outbounds {
 	fn handle_tcp(
 		&self,
+		target_addr: TargetAddr,
 		stream: impl AbstractTcpStream,
 		via: Option<impl AbstractOutbound + Sized + Send>,
-	) -> impl Future<Output = eyre::Result<impl AbstractTcpStream>> + Send {
+	) -> impl Future<Output = eyre::Result<()>> + Send {
 		match &self {
-			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_tcp(stream, via),
+			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_tcp(target_addr, stream, via),
 		}
 	}
 }
-
+// curl --socks5 127.0.0.1:6666 bing.com
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+	log::init_log(Level::TRACE)?;
+
 	let socks_opt = SocksInboundOpt {
 		listen_addr: "127.0.0.1:6666".parse()?,
 		public_addr: None,
@@ -52,7 +64,7 @@ async fn main() -> eyre::Result<()> {
 			Arc::from(String::from("test_passwd").into_bytes()),
 		),
 		zero_rtt_handshake: false,
-		heartbeat:          Duration::from_secs(20),
+		heartbeat:          Duration::from_secs(10),
 		gc_interval:        Duration::from_secs(20),
 		gc_lifetime:        Duration::from_secs(20),
 		skip_cert_verify:   true,
@@ -68,12 +80,24 @@ async fn main() -> eyre::Result<()> {
 	let outbound = Arc::new(outbound);
 	let manager = Manager { inbound, outbound };
 	let manager = Arc::new(manager);
-	let inbound_poller: JoinHandle<eyre::Result<()>> = tokio::spawn(async move {
-		let manager = manager.clone();
-		manager.inbound.listen(manager.deref()).await?;
+
+	let mut set: JoinSet<eyre::Result<()>> = JoinSet::new();
+	let manager_clone = manager.clone();
+	set.spawn(async move {
+		manager_clone.outbound.start_poll().await?;
 		Ok(())
 	});
 
-	inbound_poller.await??;
+	let manager_clone = manager.clone();
+	set.spawn(async move {
+		manager_clone.inbound.listen(manager.deref()).await?;
+		Ok(())
+	});
+	while let Some(v) = set.join_next().await
+		&& let Ok(Err(e)) = v
+	{
+		return Err(e);
+	}
+
 	Ok(())
 }

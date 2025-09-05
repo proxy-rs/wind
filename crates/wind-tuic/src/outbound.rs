@@ -6,9 +6,9 @@ use std::{
 
 use quinn::TokioRuntime;
 use snafu::ResultExt;
-use tokio::{net::UdpSocket, task::JoinHandle};
+use tokio::net::UdpSocket;
 use uuid::Uuid;
-use wind_core::{AbstractOutbound, AbstractTcpStream};
+use wind_core::{AbstractOutbound, AbstractTcpStream, types::TargetAddr};
 
 use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
 
@@ -28,7 +28,6 @@ pub struct TuicOutbound {
 	pub server_name: String,
 	pub opts:        TuicOutboundOpts,
 	pub connection:  quinn::Connection,
-	handle:          Option<JoinHandle<Result<(), Error>>>,
 }
 
 impl TuicOutbound {
@@ -48,6 +47,7 @@ impl TuicOutbound {
 				.install_default()
 				.unwrap();
 		}
+
 		let client_config = {
 			let tls_config = super::tls::tls_config(&server_name, &opts)?;
 
@@ -56,7 +56,9 @@ impl TuicOutbound {
 			));
 			let mut transport_config = quinn::TransportConfig::default();
 			transport_config
-				.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
+				.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()))
+				.keep_alive_interval(None);
+
 			client_config.transport_config(Arc::new(transport_config));
 			client_config
 		};
@@ -87,14 +89,17 @@ impl TuicOutbound {
 			peer_addr,
 			server_name,
 			opts,
-			handle: None,
 			connection,
 		})
 	}
 
-	pub async fn start(&mut self, rt: tokio::runtime::Runtime) {
-		let handle: JoinHandle<Result<(), Error>> = rt.spawn(async move { Ok(()) });
-		self.handle = Some(handle)
+	pub async fn start_poll(&self) -> eyre::Result<()> {
+		let mut interval = tokio::time::interval(self.opts.heartbeat);
+
+		loop {
+			interval.tick().await;
+			self.connection.send_heartbeat().await?;
+		}
 	}
 }
 
@@ -103,10 +108,11 @@ pub struct TuicTcpStream;
 impl AbstractOutbound for TuicOutbound {
 	async fn handle_tcp(
 		self: &Self,
+		target_addr: TargetAddr,
 		stream: impl AbstractTcpStream,
 		_dialer: Option<impl AbstractOutbound>,
-	) -> eyre::Result<impl AbstractTcpStream> {
-		let _ = _dialer;
-		Ok(TuicTcpStream)
+	) -> eyre::Result<()> {
+		self.connection.open_tcp(&target_addr, stream).await?;
+		Ok(())
 	}
 }

@@ -13,6 +13,12 @@ wind-tuic = { path = "../wind-tuic"}
 
 # Async
 tokio = { version = "*", features = ["rt-multi-thread"] }
+tokio-util = { version = "*", features = ["rt"] }
+
+tracing = "*"
+
+time = { version = "0.3", features = ["macros", "local-offset"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "std", "local-time","fmt", "ansi"] }
 
 eyre = "*"
 uuid = "*"
