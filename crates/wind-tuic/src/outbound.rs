@@ -105,8 +105,8 @@ impl AbstractOutbound for TuicOutbound {
 		self: &Self,
 		stream: impl AbstractTcpStream,
 		_dialer: Option<impl AbstractOutbound>,
-	) -> impl AbstractTcpStream {
+	) -> eyre::Result<impl AbstractTcpStream> {
 		let _ = _dialer;
-		TuicTcpStream
+		Ok(TuicTcpStream)
 	}
 }

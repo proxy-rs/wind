@@ -2,7 +2,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(trait_alias)]
 
-mod inbound;
+pub mod inbound;
 mod interface;
 pub mod io;
 mod outbound;

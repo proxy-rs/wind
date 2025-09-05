@@ -6,7 +6,7 @@ pub trait AbstractOutbound {
 		&self,
 		stream: impl AbstractTcpStream,
 		via: Option<impl AbstractOutbound + Sized + Send>,
-	) -> impl Future<Output = impl AbstractTcpStream> + Send;
+	) -> impl Future<Output = eyre::Result<impl AbstractTcpStream>> + Send;
 }
 
 mod compat {

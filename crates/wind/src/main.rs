@@ -1,8 +1,41 @@
-use std::{sync::Arc, time::Duration};
+use std::{ops::Deref, sync::Arc, time::Duration};
 
+use tokio::task::JoinHandle;
 use uuid::Uuid;
+use wind_core::{AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound};
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
 use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
+
+struct Manager {
+	inbound:  Arc<SocksInbound>,
+	outbound: Arc<TuicOutbound>,
+}
+
+impl InboundCallback for Manager {
+	async fn invoke(
+		&self,
+		target_addr: wind_core::types::TargetAddr,
+		stream: impl wind_core::AbstractTcpStream,
+	) -> eyre::Result<()> {
+		self.outbound.handle_tcp(stream, None::<TuicOutbound>).await;
+		todo!()
+	}
+}
+
+pub enum Outbounds {
+	Tuic(TuicOutbound),
+}
+impl AbstractOutbound for Outbounds {
+	fn handle_tcp(
+		&self,
+		stream: impl AbstractTcpStream,
+		via: Option<impl AbstractOutbound + Sized + Send>,
+	) -> impl Future<Output = eyre::Result<impl AbstractTcpStream>> + Send {
+		match &self {
+			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_tcp(stream, via),
+		}
+	}
+}
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -16,7 +49,7 @@ async fn main() -> eyre::Result<()> {
 	let tuic_opts = TuicOutboundOpts {
 		auth:               (
 			Uuid::parse_str("c1e6dbe2-f417-4890-994c-9ee15b926597")?,
-			Arc::from(String::from("test_passwd").into_bytes().into_boxed_slice()),
+			Arc::from(String::from("test_passwd").into_bytes()),
 		),
 		zero_rtt_handshake: false,
 		heartbeat:          Duration::from_secs(20),
@@ -31,8 +64,16 @@ async fn main() -> eyre::Result<()> {
 		tuic_opts,
 	)
 	.await?;
-	let inbound = SocksInbound::new(socks_opt).await;
+	let inbound = Arc::new(SocksInbound::new(socks_opt).await);
 	let outbound = Arc::new(outbound);
-	
+	let manager = Manager { inbound, outbound };
+	let manager = Arc::new(manager);
+	let inbound_poller: JoinHandle<eyre::Result<()>> = tokio::spawn(async move {
+		let manager = manager.clone();
+		manager.inbound.listen(manager.deref()).await?;
+		Ok(())
+	});
+
+	inbound_poller.await??;
 	Ok(())
 }

@@ -37,6 +37,8 @@ bytes = "*"
 uuid = "*"
 hex = { package = "const-hex", version = "1" }
 
+eyre = "*"
+
 # Patterns
 num_enum = "0.7"
 snafu = "0.8"
