@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 
 use clap::Parser as _;
 use tokio::task::JoinSet;
-use tracing::{Level, info};
+use tracing::Level;
 use uuid::Uuid;
 use wind_core::{
 	AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound,
@@ -50,12 +50,23 @@ impl AbstractOutbound for Outbounds {
 			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_tcp(target_addr, stream, via),
 		}
 	}
+
+	fn handle_udp(
+		&self,
+		target_addr: TargetAddr,
+		packet: tokio_util::bytes::Bytes,
+		via: Option<impl AbstractOutbound + Sized + Send>,
+	) -> impl Future<Output = eyre::Result<()>> + Send {
+		match &self {
+			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_udp(target_addr, packet, via),
+		}
+	}
 }
 // curl --socks5 127.0.0.1:6666 bing.com
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
 	log::init_log(Level::TRACE)?;
-
+	info!(target: "[MAIN]", "Wind starting");
 	let cli = match Cli::try_parse() {
 		Ok(v) => v,
 		Err(err) => {

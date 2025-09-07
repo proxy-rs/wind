@@ -1,6 +1,6 @@
 use std::{
 	net::{Ipv4Addr, SocketAddr},
-	sync::Arc,
+	sync::{Arc, atomic::AtomicU16},
 	time::Duration,
 };
 
@@ -23,11 +23,12 @@ pub struct TuicOutboundOpts {
 }
 
 pub struct TuicOutbound {
-	pub endpoint:    quinn::Endpoint,
-	pub peer_addr:   SocketAddr,
-	pub server_name: String,
-	pub opts:        TuicOutboundOpts,
-	pub connection:  quinn::Connection,
+	pub endpoint:          quinn::Endpoint,
+	pub peer_addr:         SocketAddr,
+	pub server_name:       String,
+	pub opts:              TuicOutboundOpts,
+	pub connection:        quinn::Connection,
+	pub udp_assoc_counter: AtomicU16,
 }
 
 impl TuicOutbound {
@@ -90,6 +91,7 @@ impl TuicOutbound {
 			server_name,
 			opts,
 			connection,
+			udp_assoc_counter: AtomicU16::new(0),
 		})
 	}
 
@@ -114,5 +116,14 @@ impl AbstractOutbound for TuicOutbound {
 	) -> eyre::Result<()> {
 		self.connection.open_tcp(&target_addr, stream).await?;
 		Ok(())
+	}
+
+	async fn handle_udp(
+		&self,
+		target_addr: TargetAddr,
+		packet: bytes::Bytes,
+		via: Option<impl AbstractOutbound + Sized + Send>,
+	) -> eyre::Result<()> {
+		todo!()
 	}
 }

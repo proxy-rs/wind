@@ -1,5 +1,6 @@
 mod header;
 
+use bytes::BytesMut;
 use futures_util::SinkExt as _;
 pub use header::*;
 
@@ -10,11 +11,11 @@ mod tests;
 
 mod addr;
 pub use addr::*;
-use snafu::{ResultExt, ensure};
-use tokio_util::codec::FramedWrite;
+use snafu::ResultExt;
+use tokio_util::codec::{Encoder, FramedWrite};
 use wind_core::{AbstractTcpStream, io::quinn::QuinnCompat, types::TargetAddr};
 
-use crate::{Error, SendDatagramSnafu, proto::NumericOverflowSnafu};
+use crate::{Error, SendDatagramSnafu};
 
 const VER: u8 = 5;
 
@@ -34,10 +35,9 @@ pub trait TuicClientConnection {
 		&self,
 		assoc_id: u16,
 		pkt_id: u16,
-		frag_total: u8,
-		frag_id: u8,
 		addr: &TargetAddr,
 		packet: bytes::Bytes,
+		datagram: bool,
 	) -> impl Future<Output = Result<(), Error>> + Send;
 	fn drop_udp(&self, assoc_id: u16) -> impl Future<Output = Result<(), Error>> + Send;
 }
@@ -48,14 +48,11 @@ impl TuicClientConnection for quinn::Connection {
 		self.export_keying_material(&mut token, uuid.as_bytes(), secret)?;
 
 		let auth_cmd = Command::Auth { uuid: *uuid, token };
-		let mut uni = self.open_uni().await?;
-		FramedWrite::with_capacity(&mut uni, HeaderCodec, 2)
-			.send(Header::new(CmdType::Auth))
-			.await?;
-		FramedWrite::with_capacity(&mut uni, CmdCodec(CmdType::Auth), 50)
-			.send(auth_cmd)
-			.await?;
-
+		let mut send = self.open_uni().await?;
+		let mut buf = BytesMut::with_capacity(50);
+		HeaderCodec.encode(Header::new(CmdType::Auth), &mut buf)?;
+		CmdCodec(CmdType::Auth).encode(auth_cmd, &mut buf)?;
+		send.write(&buf).await?;
 		Ok(())
 	}
 
@@ -65,16 +62,11 @@ impl TuicClientConnection for quinn::Connection {
 		mut stream: impl AbstractTcpStream,
 	) -> Result<(usize, usize), Error> {
 		let (mut send, recv) = self.open_bi().await?;
-		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
-			.send(Header::new(CmdType::Connect))
-			.await?;
-		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Connect), 2)
-			.send(Command::Connect)
-			.await?;
-		FramedWrite::new(&mut send, AddressCodec)
-			.send(addr.to_owned().into())
-			.await?;
-
+		let mut buf = BytesMut::with_capacity(9);
+		HeaderCodec.encode(Header::new(CmdType::Connect), &mut buf)?;
+		CmdCodec(CmdType::Connect).encode(Command::Connect, &mut buf)?;
+		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
+		send.write(&buf).await?;
 		let (a, b, err) =
 			wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
 		if let Some(e) = err {
@@ -85,24 +77,22 @@ impl TuicClientConnection for quinn::Connection {
 
 	async fn send_udp(
 		&self,
-		assos_id: u16,
+		assoc_id: u16,
 		pkt_id: u16,
-		frag_total: u8,
-		frag_id: u8,
 		addr: &TargetAddr,
 		payload: bytes::Bytes,
+		datagram: bool,
 	) -> Result<(), Error> {
-		ensure!(payload.len() as u16 <= u16::MAX, NumericOverflowSnafu { field: "Payload size".to_string(), num: format!("{}", payload.len()) });
 		let mut send = self.open_uni().await?;
 		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
 			.send(Header::new(CmdType::Packet))
 			.await?;
 		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Packet), 2)
 			.send(Command::Packet {
-				assos_id,
+				assoc_id,
 				pkt_id,
-				frag_total,
-				frag_id,
+				frag_total: 1,
+				frag_id: 0,
 				size: payload.len() as u16,
 			})
 			.await?;
@@ -114,6 +104,13 @@ impl TuicClientConnection for quinn::Connection {
 	}
 
 	async fn drop_udp(&self, assoc_id: u16) -> Result<(), Error> {
+		let mut send = self.open_uni().await?;
+		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
+			.send(Header::new(CmdType::Dissociate))
+			.await?;
+		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Packet), 2)
+			.send(Command::Dissociate { assoc_id })
+			.await?;
 		Ok(())
 	}
 

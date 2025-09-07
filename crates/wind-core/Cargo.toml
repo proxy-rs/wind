@@ -12,4 +12,5 @@ tokio = { version = "*", default-features = false, features = ["io-util"]}
 quinn = { version = "*", default-features = false }
 serde = { version = "*", features = ["derive"] }
 
+bytes = "*"
 eyre = "*"

@@ -8,6 +8,13 @@ pub trait AbstractOutbound {
 		stream: impl AbstractTcpStream,
 		via: Option<impl AbstractOutbound + Sized + Send>,
 	) -> impl Future<Output = eyre::Result<()>> + Send;
+	/// UDP traffic which needs handled by outbound
+	fn handle_udp(
+		&self,
+		target_addr: TargetAddr,
+		packet: bytes::Bytes,
+		via: Option<impl AbstractOutbound + Sized + Send>,
+	) -> impl Future<Output = eyre::Result<()>> + Send;
 }
 
 mod compat {

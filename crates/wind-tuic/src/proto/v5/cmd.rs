@@ -16,14 +16,14 @@ pub enum Command {
 	},
 	Connect,
 	Packet {
-		assos_id:   u16,
+		assoc_id:   u16,
 		pkt_id:     u16,
 		frag_total: u8,
 		frag_id:    u8,
 		size:       u16,
 	},
 	Dissociate {
-		assos_id: u16,
+		assoc_id: u16,
 	},
 	Heartbeat,
 }
@@ -54,7 +54,7 @@ impl Decoder for CmdCodec {
 				}
 
 				Ok(Some(Command::Packet {
-					assos_id:   src.get_u16(),
+					assoc_id:   src.get_u16(),
 					pkt_id:     src.get_u16(),
 					frag_total: src.get_u8(),
 					frag_id:    src.get_u8(),
@@ -67,7 +67,7 @@ impl Decoder for CmdCodec {
 				}
 
 				Ok(Some(Command::Dissociate {
-					assos_id: src.get_u16(),
+					assoc_id: src.get_u16(),
 				}))
 			}
 			CmdType::Heartbeat => Ok(Some(Command::Heartbeat)),
@@ -96,7 +96,7 @@ impl Encoder<Command> for CmdCodec {
 			}
 			Command::Connect => {}
 			Command::Packet {
-				assos_id,
+				assoc_id: assos_id,
 				pkt_id,
 				frag_total,
 				frag_id,
@@ -109,7 +109,7 @@ impl Encoder<Command> for CmdCodec {
 				dst.put_u8(frag_id);
 				dst.put_u16(size);
 			}
-			Command::Dissociate { assos_id } => {
+			Command::Dissociate { assoc_id: assos_id } => {
 				dst.reserve(2);
 				dst.put_u16(assos_id);
 			}
@@ -139,13 +139,13 @@ mod test {
 			},
 			Command::Connect,
 			Command::Packet {
-				assos_id:   123,
+				assoc_id:   123,
 				pkt_id:     123,
 				frag_total: 5,
 				frag_id:    1,
 				size:       8,
 			},
-			Command::Dissociate { assos_id: 23 },
+			Command::Dissociate { assoc_id: 23 },
 			Command::Heartbeat,
 		];
 		for cmd in vars {
@@ -179,13 +179,13 @@ mod test {
 				token: [1; 32],
 			},
 			Command::Packet {
-				assos_id:   123,
+				assoc_id:   123,
 				pkt_id:     123,
 				frag_total: 5,
 				frag_id:    1,
 				size:       8,
 			},
-			Command::Dissociate { assos_id: 23 },
+			Command::Dissociate { assoc_id: 23 },
 		];
 		for cmd in vars {
 			let buffer = Vec::with_capacity(128);

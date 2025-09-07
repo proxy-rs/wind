@@ -42,7 +42,7 @@ impl AbstractInbound for SocksInbound {
 		let listener = TcpListener::bind(self.opts.listen_addr).await?;
 		loop {
 			match listener.accept().await {
-				Err(err) => error!(target: "[SOCKS-IN] REACTOR" , "{:?}", err),
+				Err(err) => error!(name: "REACTOR", target:"[SOCKS-IN]", "{:?}", err),
 				Ok((stream, client_addr)) => {
 					match self.handle_income(stream, client_addr, cb).await {
 						Ok(_) => {}

@@ -2051,6 +2051,7 @@ dependencies = [
 name = "wind-core"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "eyre",
  "pin-project",
  "quinn",

@@ -27,3 +27,21 @@ pub fn init_log(level: Level) -> eyre::Result<()> {
 
 	Ok(())
 }
+
+
+#[macro_export]
+macro_rules! info {
+    (target: $target:expr, $($arg:tt)*) => {
+        tracing::info!(target: concat!(env!("CARGO_PKG_NAME"), " ", $target), $($arg)*)
+    };
+    (name: $name:expr, target: $target:expr, $($arg:tt)*) => {
+        tracing::info!(
+            name: $name,
+            target: concat!(env!("CARGO_PKG_NAME"), " ", $target),
+            $($arg)*
+        )
+    };
+    ($($arg:tt)*) => {
+        tracing::info!($($arg)*)
+    };
+}
