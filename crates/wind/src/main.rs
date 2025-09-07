@@ -1,7 +1,8 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
+use clap::Parser as _;
 use tokio::task::JoinSet;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use uuid::Uuid;
 use wind_core::{
 	AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound,
@@ -10,6 +11,9 @@ use wind_core::{
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
 use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
 
+use crate::cli::Cli;
+
+mod cli;
 mod log;
 
 struct Manager {
@@ -51,6 +55,24 @@ impl AbstractOutbound for Outbounds {
 async fn main() -> eyre::Result<()> {
 	log::init_log(Level::TRACE)?;
 
+	let cli = match Cli::try_parse() {
+		Ok(v) => v,
+		Err(err) => {
+			println!("{:#}", err);
+			return Ok(());
+		}
+	};
+
+	if cli.version {
+		const VER: &str = {
+			match option_env!("WIND_OVERRIVE_VERSION") {
+				Some(v) => v,
+				None => env!("CARGO_PKG_VERSION"),
+			}
+		};
+		println!("wind {VER}");
+		return Ok(());
+	}
 	let socks_opt = SocksInboundOpt {
 		listen_addr: "127.0.0.1:6666".parse()?,
 		public_addr: None,

@@ -1,5 +1,7 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::fmt::Display;
+use std::{
+	fmt::Display,
+	net::{Ipv4Addr, Ipv6Addr},
+};
 
 #[derive(Clone, Debug)]
 pub enum TargetAddr {

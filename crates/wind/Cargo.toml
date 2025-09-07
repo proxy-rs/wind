@@ -3,7 +3,7 @@ name = "wind"
 version.workspace = true
 repository.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "A proxy tool written in Rust"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
@@ -12,10 +12,13 @@ wind-socks = { path = "../wind-socks"}
 wind-tuic = { path = "../wind-tuic"}
 
 # Async
-tokio = { version = "*", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-util = { version = "*", features = ["rt"] }
 
 tracing = "*"
+
+clap = { version = "4", features = ["derive"] }
+clap_derive = { version = "4.0.0-rc.1" }
 
 time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "std", "local-time","fmt", "ansi"] }
