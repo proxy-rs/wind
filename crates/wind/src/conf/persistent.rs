@@ -1,3 +1,1 @@
-struct PersisentConfig {
-   
-}
+struct PersisentConfig {}

@@ -1,3 +1,5 @@
+#![feature(error_generic_member_access)]
+
 use std::{backtrace::Backtrace, net::SocketAddr};
 
 use fast_socks5::{ReplyError, server::SocksServerError};
@@ -18,13 +20,19 @@ pub enum Error {
 		backtrace: Backtrace,
 	},
 	Socks {
+		#[snafu(provide)]
 		source: SocksServerError,
+		backtrace: Backtrace,
 	},
 	SocksReply {
+		#[snafu(provide)]
 		source: ReplyError,
+		backtrace: Backtrace,
 	},
 	Callback {
+		#[snafu(provide)]
 		source: eyre::Report,
+		backtrace: Backtrace,
 	},
 }
 

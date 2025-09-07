@@ -1,3 +1,5 @@
+#![feature(error_generic_member_access)]
+
 use std::{backtrace::Backtrace, net::SocketAddr};
 
 pub mod proto;

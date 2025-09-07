@@ -41,7 +41,7 @@ eyre = "*"
 
 # Patterns
 num_enum = "0.7"
-snafu = "0.8"
+snafu = { version = "*", features = ["unstable-provider-api"]}
 enum_dispatch = "*"
 secrecy = "0.10"
 pin-project = "1"

@@ -10,11 +10,11 @@ mod tests;
 
 mod addr;
 pub use addr::*;
-use snafu::ResultExt;
+use snafu::{ResultExt, ensure};
 use tokio_util::codec::FramedWrite;
 use wind_core::{AbstractTcpStream, io::quinn::QuinnCompat, types::TargetAddr};
 
-use crate::{Error, SendDatagramSnafu};
+use crate::{Error, SendDatagramSnafu, proto::NumericOverflowSnafu};
 
 const VER: u8 = 5;
 
@@ -30,6 +30,16 @@ pub trait TuicClientConnection {
 		addr: &TargetAddr,
 		stream: impl AbstractTcpStream,
 	) -> impl Future<Output = Result<(usize, usize), Error>> + Send;
+	fn send_udp(
+		&self,
+		assoc_id: u16,
+		pkt_id: u16,
+		frag_total: u8,
+		frag_id: u8,
+		addr: &TargetAddr,
+		packet: bytes::Bytes,
+	) -> impl Future<Output = Result<(), Error>> + Send;
+	fn drop_udp(&self, assoc_id: u16) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
 impl TuicClientConnection for quinn::Connection {
@@ -46,16 +56,6 @@ impl TuicClientConnection for quinn::Connection {
 			.send(auth_cmd)
 			.await?;
 
-		Ok(())
-	}
-
-	async fn send_heartbeat(&self) -> Result<(), Error> {
-		let mut buf = Vec::with_capacity(2);
-		FramedWrite::with_capacity(&mut buf, HeaderCodec, 2)
-			.send(Header::new(CmdType::Heartbeat))
-			.await?;
-
-		self.send_datagram(buf.into()).context(SendDatagramSnafu)?;
 		Ok(())
 	}
 
@@ -81,5 +81,49 @@ impl TuicClientConnection for quinn::Connection {
 			return Err(e.into());
 		}
 		Ok((a, b))
+	}
+
+	async fn send_udp(
+		&self,
+		assos_id: u16,
+		pkt_id: u16,
+		frag_total: u8,
+		frag_id: u8,
+		addr: &TargetAddr,
+		payload: bytes::Bytes,
+	) -> Result<(), Error> {
+		ensure!(payload.len() as u16 <= u16::MAX, NumericOverflowSnafu { field: "Payload size".to_string(), num: format!("{}", payload.len()) });
+		let mut send = self.open_uni().await?;
+		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
+			.send(Header::new(CmdType::Packet))
+			.await?;
+		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Packet), 2)
+			.send(Command::Packet {
+				assos_id,
+				pkt_id,
+				frag_total,
+				frag_id,
+				size: payload.len() as u16,
+			})
+			.await?;
+		FramedWrite::new(&mut send, AddressCodec)
+			.send(addr.to_owned().into())
+			.await?;
+		send.write(&payload).await?;
+		Ok(())
+	}
+
+	async fn drop_udp(&self, assoc_id: u16) -> Result<(), Error> {
+		Ok(())
+	}
+
+	async fn send_heartbeat(&self) -> Result<(), Error> {
+		let mut buf = Vec::with_capacity(2);
+		FramedWrite::with_capacity(&mut buf, HeaderCodec, 2)
+			.send(Header::new(CmdType::Heartbeat))
+			.await?;
+
+		self.send_datagram(buf.into()).context(SendDatagramSnafu)?;
+		Ok(())
 	}
 }

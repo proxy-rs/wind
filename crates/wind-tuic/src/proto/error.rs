@@ -37,6 +37,11 @@ pub enum ProtoError {
 		source:    std::io::Error,
 		backtrace: Backtrace,
 	},
+	NumericOverflow {
+		field:     String,
+		num:       String,
+		backtrace: Backtrace,
+	},
 }
 
 impl From<std::io::Error> for ProtoError {

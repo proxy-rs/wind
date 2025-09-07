@@ -13,8 +13,8 @@ use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
 
 use crate::cli::Cli;
 
-mod conf;
 mod cli;
+mod conf;
 mod log;
 
 struct Manager {
