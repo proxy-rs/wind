@@ -5,9 +5,17 @@ use clap::{ArgAction, Parser, Subcommand};
 #[derive(Parser)]
 #[command(about, long_about = None)]
 pub struct Cli {
-	/// Sets a custom config file
-	#[arg(short, visible_short_alias = 'f', long, value_name = "FILE")]
-	pub config: Option<PathBuf>,
+	/// Set a custom config
+	#[arg(short, visible_short_alias = 'f', long, value_name = "FILE/BASE64-TEXT")]
+	pub config: Option<String>,
+
+	/// Set configuration directory
+	#[arg(short = 'C', visible_short_alias = 'd', long, value_name = "PATH")]
+	pub config_dir: Option<PathBuf>,
+
+	/// Set working directory
+	#[arg(short = 'D', long, value_name = "PATH")]
+	pub work_dir: Option<PathBuf>,
 
 	/// Show current version
 	#[arg(short = 'v', visible_short_alias = 'V', long, action = ArgAction::SetTrue)]

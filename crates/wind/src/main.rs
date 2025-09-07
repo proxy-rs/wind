@@ -13,6 +13,7 @@ use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
 
 use crate::cli::Cli;
 
+mod conf;
 mod cli;
 mod log;
 
@@ -64,11 +65,9 @@ async fn main() -> eyre::Result<()> {
 	};
 
 	if cli.version {
-		const VER: &str = {
-			match option_env!("WIND_OVERRIVE_VERSION") {
-				Some(v) => v,
-				None => env!("CARGO_PKG_VERSION"),
-			}
+		const VER: &str = match option_env!("WIND_OVERRIVE_VERSION") {
+			Some(v) => v,
+			None => env!("CARGO_PKG_VERSION"),
 		};
 		println!("wind {VER}");
 		return Ok(());
