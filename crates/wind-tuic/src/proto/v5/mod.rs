@@ -1,7 +1,6 @@
 mod header;
 
 use bytes::BytesMut;
-use futures_util::SinkExt as _;
 pub use header::*;
 
 mod cmd;
@@ -12,7 +11,7 @@ mod tests;
 mod addr;
 pub use addr::*;
 use snafu::ResultExt;
-use tokio_util::codec::{Encoder, FramedWrite};
+use tokio_util::codec::Encoder;
 use wind_core::{AbstractTcpStream, io::quinn::QuinnCompat, types::TargetAddr};
 
 use crate::{Error, SendDatagramSnafu};
@@ -52,7 +51,7 @@ impl TuicClientConnection for quinn::Connection {
 		let mut buf = BytesMut::with_capacity(50);
 		HeaderCodec.encode(Header::new(CmdType::Auth), &mut buf)?;
 		CmdCodec(CmdType::Auth).encode(auth_cmd, &mut buf)?;
-		send.write(&buf).await?;
+		send.write_chunk(buf.into()).await?;
 		Ok(())
 	}
 
@@ -66,7 +65,7 @@ impl TuicClientConnection for quinn::Connection {
 		HeaderCodec.encode(Header::new(CmdType::Connect), &mut buf)?;
 		CmdCodec(CmdType::Connect).encode(Command::Connect, &mut buf)?;
 		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
-		send.write(&buf).await?;
+		send.write_chunk(buf.into()).await?;
 		let (a, b, err) =
 			wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
 		if let Some(e) = err {
@@ -84,42 +83,33 @@ impl TuicClientConnection for quinn::Connection {
 		datagram: bool,
 	) -> Result<(), Error> {
 		let mut send = self.open_uni().await?;
-		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
-			.send(Header::new(CmdType::Packet))
-			.await?;
-		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Packet), 2)
-			.send(Command::Packet {
-				assoc_id,
-				pkt_id,
-				frag_total: 1,
-				frag_id: 0,
-				size: payload.len() as u16,
-			})
-			.await?;
-		FramedWrite::new(&mut send, AddressCodec)
-			.send(addr.to_owned().into())
-			.await?;
-		send.write(&payload).await?;
+		let mut buf = BytesMut::with_capacity(12);
+		HeaderCodec.encode(Header::new(CmdType::Packet), &mut buf)?;
+		CmdCodec(CmdType::Packet).encode(Command::Packet {
+			assoc_id,
+			pkt_id,
+			frag_total: 1,
+			frag_id: 0,
+			size: payload.len() as u16,
+		}, &mut buf)?;
+		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
+
+		send.write_all_chunks(&mut [buf.into(), payload]).await?;
 		Ok(())
 	}
 
 	async fn drop_udp(&self, assoc_id: u16) -> Result<(), Error> {
 		let mut send = self.open_uni().await?;
-		FramedWrite::with_capacity(&mut send, HeaderCodec, 2)
-			.send(Header::new(CmdType::Dissociate))
-			.await?;
-		FramedWrite::with_capacity(&mut send, CmdCodec(CmdType::Packet), 2)
-			.send(Command::Dissociate { assoc_id })
-			.await?;
+		let mut buf = BytesMut::with_capacity(4);
+		HeaderCodec.encode(Header::new(CmdType::Dissociate), &mut buf)?;
+		CmdCodec(CmdType::Packet).encode(Command::Dissociate { assoc_id },&mut buf)?;
+		send.write_chunk(buf.into()).await?;
 		Ok(())
 	}
 
 	async fn send_heartbeat(&self) -> Result<(), Error> {
-		let mut buf = Vec::with_capacity(2);
-		FramedWrite::with_capacity(&mut buf, HeaderCodec, 2)
-			.send(Header::new(CmdType::Heartbeat))
-			.await?;
-
+		let mut buf = BytesMut::with_capacity(2);
+		HeaderCodec.encode(Header::new(CmdType::Heartbeat), &mut buf)?;
 		self.send_datagram(buf.into()).context(SendDatagramSnafu)?;
 		Ok(())
 	}
