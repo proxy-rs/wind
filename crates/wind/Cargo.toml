@@ -22,6 +22,7 @@ clap_derive = { version = "4.0.0-rc.1" }
 
 time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "std", "local-time","fmt", "ansi"] }
+const-str = "0.7"
 
 eyre = "*"
 uuid = "*"

@@ -5,7 +5,7 @@ use tokio::task::JoinSet;
 use tracing::Level;
 use uuid::Uuid;
 use wind_core::{
-	AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound,
+	AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound, info,
 	types::TargetAddr,
 };
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};

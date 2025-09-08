@@ -85,13 +85,16 @@ impl TuicClientConnection for quinn::Connection {
 		let mut send = self.open_uni().await?;
 		let mut buf = BytesMut::with_capacity(12);
 		HeaderCodec.encode(Header::new(CmdType::Packet), &mut buf)?;
-		CmdCodec(CmdType::Packet).encode(Command::Packet {
-			assoc_id,
-			pkt_id,
-			frag_total: 1,
-			frag_id: 0,
-			size: payload.len() as u16,
-		}, &mut buf)?;
+		CmdCodec(CmdType::Packet).encode(
+			Command::Packet {
+				assoc_id,
+				pkt_id,
+				frag_total: 1,
+				frag_id: 0,
+				size: payload.len() as u16,
+			},
+			&mut buf,
+		)?;
 		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
 
 		send.write_all_chunks(&mut [buf.into(), payload]).await?;
@@ -102,7 +105,7 @@ impl TuicClientConnection for quinn::Connection {
 		let mut send = self.open_uni().await?;
 		let mut buf = BytesMut::with_capacity(4);
 		HeaderCodec.encode(Header::new(CmdType::Dissociate), &mut buf)?;
-		CmdCodec(CmdType::Packet).encode(Command::Dissociate { assoc_id },&mut buf)?;
+		CmdCodec(CmdType::Packet).encode(Command::Dissociate { assoc_id }, &mut buf)?;
 		send.write_chunk(buf.into()).await?;
 		Ok(())
 	}
