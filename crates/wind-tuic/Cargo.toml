@@ -51,6 +51,8 @@ tokio-rustls = { version = "*", default-features = false, features = ["logging"]
 rustls = { version  = "*", default-features = false }
 rustls-platform-verifier = { version = "*", default-features = false }
 
+
+tracing = "*"
 [dev-dependencies]
 tokio = { version = "*", default-features = false, features = ["macros", "rt"] }
 eyre = "*"

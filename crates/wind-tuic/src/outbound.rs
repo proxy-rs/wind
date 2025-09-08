@@ -8,7 +8,7 @@ use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use uuid::Uuid;
-use wind_core::{AbstractOutbound, AbstractTcpStream, types::TargetAddr};
+use wind_core::{AbstractOutbound, AbstractTcpStream, info, types::TargetAddr};
 
 use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
 
@@ -48,7 +48,7 @@ impl TuicOutbound {
 				.install_default()
 				.unwrap();
 		}
-
+		info!(target: "[OUT]", "Creating a new TUIC outboud");
 		let client_config = {
 			let tls_config = super::tls::tls_config(&server_name, &opts)?;
 

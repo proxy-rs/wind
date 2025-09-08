@@ -62,7 +62,7 @@ impl AbstractOutbound for Outbounds {
 		}
 	}
 }
-// curl --socks5 127.0.0.1:6666 bing.com
+// curl --socks5 127.0.0.1:6666 https://www.bing.com
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
 	log::init_log(Level::TRACE)?;
@@ -128,6 +128,7 @@ async fn main() -> eyre::Result<()> {
 	while let Some(v) = set.join_next().await
 		&& let Ok(Err(e)) = v
 	{
+		set.shutdown().await;
 		return Err(e);
 	}
 

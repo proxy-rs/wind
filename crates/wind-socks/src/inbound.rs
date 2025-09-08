@@ -6,8 +6,8 @@ use fast_socks5::{
 };
 use snafu::ResultExt;
 use tokio::net::{TcpListener, TcpStream};
-use tracing::error;
-use wind_core::{AbstractInbound, InboundCallback, types::TargetAddr};
+
+use wind_core::{error, types::TargetAddr, AbstractInbound, InboundCallback};
 
 use crate::{CallbackSnafu, Error, SocksSnafu};
 
@@ -42,11 +42,11 @@ impl AbstractInbound for SocksInbound {
 		let listener = TcpListener::bind(self.opts.listen_addr).await?;
 		loop {
 			match listener.accept().await {
-				Err(err) => error!(name: "REACTOR", target:"[SOCKS-IN]", "{:?}", err),
+				Err(err) => error!(target:"[IN] REACTOR", "{:?}", err),
 				Ok((stream, client_addr)) => {
 					match self.handle_income(stream, client_addr, cb).await {
 						Ok(_) => {}
-						Err(err) => error!(target: "[SOCKS-IN] HANDLER" , "{:?}", err),
+						Err(err) => error!(target: "[IN] HANDLER" , "{:?}", err),
 					}
 				}
 			}
@@ -98,8 +98,8 @@ impl SocksInbound {
 				cb.invoke(target_addr, inner).await.context(CallbackSnafu)?;
 			}
 			Socks5Command::UDPAssociate if self.opts.allow_udp => {
-				// let reply_ip = opt.public_addr.context("invalid reply ip")?;
-				// run_udp_proxy(proto, &target_addr, None, reply_ip, None).await?;
+				//let reply_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+				//fast_socks5::server::run_udp_proxy(proto, &target_addr, None, reply_ip, None).await?;
 				proto.reply_error(&ReplyError::CommandNotSupported).await?;
 				return Err(ReplyError::CommandNotSupported.into());
 			}

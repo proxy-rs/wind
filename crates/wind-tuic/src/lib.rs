@@ -52,6 +52,7 @@ pub enum Error {
 		source:    quinn::WriteError,
 		backtrace: Backtrace,
 	},
+	#[snafu(display("Failed to send datagram"))]
 	SendDatagram {
 		source:    quinn::SendDatagramError,
 		backtrace: Backtrace,
