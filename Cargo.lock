@@ -2076,6 +2076,7 @@ dependencies = [
  "fast-socks5",
  "futures-util",
  "snafu",
+ "socket2 0.6.0",
  "tokio",
  "tokio-stream",
  "tokio-util",

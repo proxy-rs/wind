@@ -5,6 +5,7 @@ use std::{backtrace::Backtrace, net::SocketAddr};
 use fast_socks5::{ReplyError, server::SocksServerError};
 use snafu::{IntoError, Snafu};
 
+pub mod ext;
 pub mod inbound;
 
 #[derive(Debug, Snafu)]
@@ -16,6 +17,7 @@ pub enum Error {
 		backtrace:   Backtrace,
 	},
 	Io {
+		// purpose: String
 		source:    std::io::Error,
 		backtrace: Backtrace,
 	},

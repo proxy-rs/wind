@@ -6,10 +6,9 @@ use fast_socks5::{
 };
 use snafu::ResultExt;
 use tokio::net::{TcpListener, TcpStream};
+use wind_core::{AbstractInbound, InboundCallback, error, types::TargetAddr};
 
-use wind_core::{error, types::TargetAddr, AbstractInbound, InboundCallback};
-
-use crate::{CallbackSnafu, Error, SocksSnafu};
+use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu};
 
 pub struct SocksInboundOpt {
 	/// Bind on address address. eg. `127.0.0.1:1080`
@@ -79,29 +78,39 @@ impl SocksInbound {
 			}
 		};
 		let (proto, cmd, target_addr) = proto.read_command().await?;
-		let target_addr = match target_addr {
-			SocksTargetAddr::Ip(socket_addr) => match socket_addr {
-				SocketAddr::V4(socket_addr) => {
-					TargetAddr::IPv4(*socket_addr.ip(), socket_addr.port())
-				}
-				SocketAddr::V6(socket_addr) => {
-					TargetAddr::IPv6(*socket_addr.ip(), socket_addr.port())
-				}
-			},
-			SocksTargetAddr::Domain(domain, port) => TargetAddr::Domain(domain, port),
-		};
+
 		match cmd {
 			Socks5Command::TCPConnect => {
 				let inner = proto
 					.reply_success(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0))
 					.await?;
-				cb.invoke(target_addr, inner).await.context(CallbackSnafu)?;
+				let target_addr = match target_addr {
+					SocksTargetAddr::Ip(socket_addr) => match socket_addr {
+						SocketAddr::V4(socket_addr) => {
+							TargetAddr::IPv4(*socket_addr.ip(), socket_addr.port())
+						}
+						SocketAddr::V6(socket_addr) => {
+							TargetAddr::IPv6(*socket_addr.ip(), socket_addr.port())
+						}
+					},
+					SocksTargetAddr::Domain(domain, port) => TargetAddr::Domain(domain, port),
+				};
+				cb.handle_tcpstream(target_addr, inner).await.context(CallbackSnafu)?;
 			}
 			Socks5Command::UDPAssociate if self.opts.allow_udp => {
-				//let reply_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-				//fast_socks5::server::run_udp_proxy(proto, &target_addr, None, reply_ip, None).await?;
-				proto.reply_error(&ReplyError::CommandNotSupported).await?;
-				return Err(ReplyError::CommandNotSupported.into());
+				let reply_ip = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+				crate::ext::run_udp_proxy(
+					proto,
+					&target_addr,
+					None,
+					reply_ip,
+					move |inbound| async move {
+						let v = tokio::net::UdpSocket::from_std(inbound.into()).context(IoSnafu)?;
+						
+						todo!()
+					},
+				)
+				.await?;
 			}
 			_ => {
 				proto.reply_error(&ReplyError::CommandNotSupported).await?;

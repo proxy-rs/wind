@@ -13,8 +13,9 @@ tokio = { version = "*", default-features = false, features = ["net"] }
 tokio-util = { version = "*", features = ["codec"] }
 tokio-stream = "*"
 futures-util = { version = "*", default-features = false, features = ["sink"] }
-fast-socks5 = "1.0.0-rc.0"
+fast-socks5 = "1.0.0-rc.0" 
 
+socket2 = "*"
 snafu = "0.8"
 eyre = "*"
 tracing = "*"

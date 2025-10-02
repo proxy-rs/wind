@@ -109,7 +109,7 @@ pub struct TuicTcpStream;
 
 impl AbstractOutbound for TuicOutbound {
 	async fn handle_tcp(
-		self: &Self,
+		&self,
 		target_addr: TargetAddr,
 		stream: impl AbstractTcpStream,
 		_dialer: Option<impl AbstractOutbound>,

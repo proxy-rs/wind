@@ -7,6 +7,7 @@ use rustls::{
 
 use crate::{Error, outbound::TuicOutboundOpts};
 
+#[allow(clippy::result_large_err)]
 pub(crate) fn tls_config(
 	_servername: &str,
 	opts: &TuicOutboundOpts,

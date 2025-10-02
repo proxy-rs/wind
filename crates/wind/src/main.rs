@@ -23,7 +23,7 @@ struct Manager {
 }
 
 impl InboundCallback for Manager {
-	async fn invoke(
+	async fn handle_tcpstream(
 		&self,
 		target_addr: TargetAddr,
 		stream: impl wind_core::AbstractTcpStream,
@@ -125,11 +125,11 @@ async fn main() -> eyre::Result<()> {
 		manager_clone.inbound.listen(manager.deref()).await?;
 		Ok(())
 	});
-	while let Some(v) = set.join_next().await
-		&& let Ok(Err(e)) = v
-	{
-		set.shutdown().await;
-		return Err(e);
+	while let Some(v) = set.join_next().await {
+		if let Ok(Err(e)) = v {
+			set.shutdown().await;
+			return Err(e);
+		}
 	}
 
 	Ok(())
