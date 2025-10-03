@@ -57,6 +57,7 @@ where
 	(a2b_num, b2a_num, last_err)
 }
 
+#[cfg(feature = "quic")]
 pub mod quinn {
 	use std::{
 		io,

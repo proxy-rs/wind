@@ -2062,6 +2062,7 @@ dependencies = [
  "const-str",
  "eyre",
  "pin-project",
+ "pin-project-lite",
  "quinn",
  "serde",
  "tokio",

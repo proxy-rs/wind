@@ -95,7 +95,9 @@ impl SocksInbound {
 					},
 					SocksTargetAddr::Domain(domain, port) => TargetAddr::Domain(domain, port),
 				};
-				cb.handle_tcpstream(target_addr, inner).await.context(CallbackSnafu)?;
+				cb.handle_tcpstream(target_addr, inner)
+					.await
+					.context(CallbackSnafu)?;
 			}
 			Socks5Command::UDPAssociate if self.opts.allow_udp => {
 				let reply_ip = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
@@ -106,7 +108,7 @@ impl SocksInbound {
 					reply_ip,
 					move |inbound| async move {
 						let v = tokio::net::UdpSocket::from_std(inbound.into()).context(IoSnafu)?;
-						
+
 						todo!()
 					},
 				)

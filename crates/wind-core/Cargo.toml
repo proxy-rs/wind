@@ -6,14 +6,20 @@ edition.workspace = true
 description.workspace = true
 license = "MIT OR Apache-2.0"
 
+[features]
+default = ["quic"]
+quic = ["quinn"]
+
 [dependencies]
 pin-project = "1"
 tokio = { version = "*", default-features = false, features = ["io-util"]}
-quinn = { version = "*", default-features = false }
+quinn = { version = "*", default-features = false, optional = true }
 serde = { version = "*", features = ["derive"] }
+
 
 bytes = "*"
 eyre = "*"
+pin-project-lite = "0.2"
 
 tracing = "*"
 const-str = "0.7"

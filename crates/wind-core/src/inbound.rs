@@ -1,5 +1,6 @@
-use crate::{AbstractTcpStream, types::TargetAddr};
 use std::fmt::Debug;
+
+use crate::{AbstractTcpStream, AbstractUdpSocket, types::TargetAddr};
 
 pub trait FutResult<T> = Future<Output = eyre::Result<T>> + Send + Sync;
 
@@ -9,15 +10,12 @@ pub trait AbstractInbound {
 }
 
 pub trait InboundCallback: Send + Sync {
-	fn handle_tcpstream(&self, target_addr: TargetAddr, stream: impl AbstractTcpStream)
-	-> impl FutResult<()>;
-	fn handle_udpsocket(&self, stream: impl AbstractUdpSocket)
-	-> impl FutResult<()> {
-		quinn::AsyncUdpSocket
-		unimplemented!()
+	fn handle_tcpstream(
+		&self,
+		target_addr: TargetAddr,
+		stream: impl AbstractTcpStream,
+	) -> impl FutResult<()>;
+	fn handle_udpsocket(&self, socket: impl AbstractUdpSocket) -> impl FutResult<()> {
+		async { unimplemented!() }
 	}
-}
-
-pub trait AbstractUdpSocket: Send + Sync + Debug + 'static {
-
 }
