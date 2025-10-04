@@ -22,7 +22,7 @@ ring = [
 ]
 
 [dependencies]
-wind-core = { path = "../wind-core"}
+wind-core = { path = "../wind-core", features = ["quic"]}
 
 
 # Async

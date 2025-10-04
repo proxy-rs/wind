@@ -13,7 +13,10 @@ quic = ["quinn"]
 [dependencies]
 pin-project = "1"
 tokio = { version = "*", default-features = false, features = ["io-util"]}
+
 quinn = { version = "*", default-features = false, optional = true }
+quinn-udp = "0.5"
+
 serde = { version = "*", features = ["derive"] }
 
 

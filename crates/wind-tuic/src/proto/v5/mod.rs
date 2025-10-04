@@ -12,7 +12,7 @@ mod addr;
 pub use addr::*;
 use snafu::ResultExt;
 use tokio_util::codec::Encoder;
-use wind_core::{AbstractTcpStream, io::quinn::QuinnCompat, types::TargetAddr};
+use wind_core::{io::quinn::QuinnCompat, tcp::AbstractTcpStream, types::TargetAddr};
 
 use crate::{Error, SendDatagramSnafu};
 

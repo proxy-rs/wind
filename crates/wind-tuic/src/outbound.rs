@@ -8,7 +8,7 @@ use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use uuid::Uuid;
-use wind_core::{AbstractOutbound, AbstractTcpStream, info, types::TargetAddr};
+use wind_core::{AbstractOutbound, info, tcp::AbstractTcpStream, types::TargetAddr};
 
 use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
 

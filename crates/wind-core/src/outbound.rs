@@ -1,4 +1,4 @@
-use crate::{AbstractTcpStream, types::TargetAddr};
+use crate::{tcp::AbstractTcpStream, types::TargetAddr};
 
 pub trait AbstractOutbound {
 	/// TCP traffic which needs handled by outbound

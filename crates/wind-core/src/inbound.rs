@@ -1,6 +1,4 @@
-use std::fmt::Debug;
-
-use crate::{AbstractTcpStream, AbstractUdpSocket, types::TargetAddr};
+use crate::{tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket};
 
 pub trait FutResult<T> = Future<Output = eyre::Result<T>> + Send + Sync;
 

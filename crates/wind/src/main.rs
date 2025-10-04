@@ -5,7 +5,7 @@ use tokio::task::JoinSet;
 use tracing::Level;
 use uuid::Uuid;
 use wind_core::{
-	AbstractOutbound, AbstractTcpStream, InboundCallback, inbound::AbstractInbound, info,
+	AbstractOutbound, InboundCallback, inbound::AbstractInbound, info, tcp::AbstractTcpStream,
 	types::TargetAddr,
 };
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
@@ -26,7 +26,7 @@ impl InboundCallback for Manager {
 	async fn handle_tcpstream(
 		&self,
 		target_addr: TargetAddr,
-		stream: impl wind_core::AbstractTcpStream,
+		stream: impl AbstractTcpStream,
 	) -> eyre::Result<()> {
 		info!(target: "[TCP-IN] START","target address {target_addr}");
 		self.outbound
