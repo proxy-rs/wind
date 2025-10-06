@@ -1,4 +1,4 @@
-use crate::{tcp::AbstractTcpStream, types::TargetAddr};
+use crate::{tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket};
 
 pub trait AbstractOutbound {
 	/// TCP traffic which needs handled by outbound
@@ -11,8 +11,7 @@ pub trait AbstractOutbound {
 	/// UDP traffic which needs handled by outbound
 	fn handle_udp(
 		&self,
-		target_addr: TargetAddr,
-		packet: bytes::Bytes,
+		socket: impl AbstractUdpSocket,
 		via: Option<impl AbstractOutbound + Sized + Send>,
 	) -> impl Future<Output = eyre::Result<()>> + Send;
 }

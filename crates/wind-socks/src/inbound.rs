@@ -6,9 +6,9 @@ use fast_socks5::{
 };
 use snafu::ResultExt;
 use tokio::net::{TcpListener, TcpStream};
-use wind_core::{AbstractInbound, InboundCallback, error, types::TargetAddr};
+use wind_core::{AbstractInbound, InboundCallback, error, types::TargetAddr, udp::TokioUdpSocket};
 
-use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu};
+use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu, convert_addr};
 
 pub struct SocksInboundOpt {
 	/// Bind on address address. eg. `127.0.0.1:1080`
@@ -107,9 +107,9 @@ impl SocksInbound {
 					None,
 					reply_ip,
 					move |inbound| async move {
-						let v = tokio::net::UdpSocket::from_std(inbound.into()).context(IoSnafu)?;
-
-						todo!()
+						cb.handle_udpsocket(TokioUdpSocket::new(inbound.into()).context(IoSnafu)?)
+							.await
+							.context(CallbackSnafu)
 					},
 				)
 				.await?;

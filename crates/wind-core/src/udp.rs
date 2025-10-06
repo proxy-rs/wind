@@ -49,7 +49,14 @@ pub struct TokioUdpSocket {
 	io:    tokio::net::UdpSocket,
 	inner: UdpSocketState,
 }
-
+impl TokioUdpSocket {
+	pub fn new(sock: std::net::UdpSocket) -> std::io::Result<Self> {
+		Ok(Self {
+			inner: UdpSocketState::new((&sock).into())?,
+			io:    tokio::net::UdpSocket::from_std(sock)?,
+		})
+	}
+}
 impl AbstractUdpSocket for TokioUdpSocket {
 	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
 		Box::pin(UdpPollHelper::new(move || {

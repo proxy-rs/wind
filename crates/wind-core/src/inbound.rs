@@ -13,7 +13,5 @@ pub trait InboundCallback: Send + Sync {
 		target_addr: TargetAddr,
 		stream: impl AbstractTcpStream,
 	) -> impl FutResult<()>;
-	fn handle_udpsocket(&self, socket: impl AbstractUdpSocket) -> impl FutResult<()> {
-		async { unimplemented!() }
-	}
+	fn handle_udpsocket(&self, socket: impl AbstractUdpSocket) -> impl FutResult<()>;
 }

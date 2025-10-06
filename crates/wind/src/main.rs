@@ -6,7 +6,7 @@ use tracing::Level;
 use uuid::Uuid;
 use wind_core::{
 	AbstractOutbound, InboundCallback, inbound::AbstractInbound, info, tcp::AbstractTcpStream,
-	types::TargetAddr,
+	types::TargetAddr, udp::AbstractUdpSocket,
 };
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
 use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
@@ -34,6 +34,12 @@ impl InboundCallback for Manager {
 			.await?;
 		Ok(())
 	}
+
+	async fn handle_udpsocket(&self, socket: impl AbstractUdpSocket) -> eyre::Result<()> {
+		info!(target: "[UDP-IN] START","UDP association started");
+		self.outbound.handle_udp(socket, None::<Outbounds>).await?;
+		Ok(())
+	}
 }
 
 pub enum Outbounds {
@@ -53,12 +59,11 @@ impl AbstractOutbound for Outbounds {
 
 	fn handle_udp(
 		&self,
-		target_addr: TargetAddr,
-		packet: tokio_util::bytes::Bytes,
+		socket: impl AbstractUdpSocket,
 		via: Option<impl AbstractOutbound + Sized + Send>,
 	) -> impl Future<Output = eyre::Result<()>> + Send {
 		match &self {
-			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_udp(target_addr, packet, via),
+			Outbounds::Tuic(tuic_outbound) => tuic_outbound.handle_udp(socket, via),
 		}
 	}
 }

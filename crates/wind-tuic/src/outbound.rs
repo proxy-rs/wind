@@ -8,7 +8,9 @@ use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use uuid::Uuid;
-use wind_core::{AbstractOutbound, info, tcp::AbstractTcpStream, types::TargetAddr};
+use wind_core::{
+	AbstractOutbound, info, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
+};
 
 use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
 
@@ -120,9 +122,8 @@ impl AbstractOutbound for TuicOutbound {
 
 	async fn handle_udp(
 		&self,
-		target_addr: TargetAddr,
-		packet: bytes::Bytes,
-		via: Option<impl AbstractOutbound + Sized + Send>,
+		socket: impl AbstractUdpSocket,
+		_dialer: Option<impl AbstractOutbound>,
 	) -> eyre::Result<()> {
 		todo!()
 	}
