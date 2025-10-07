@@ -7,10 +7,19 @@ use std::{
 	task::{Context, Poll, ready},
 };
 
+use bytes::Bytes;
 #[cfg(feature = "quic")]
 pub use quinn::UdpPoller;
 pub use quinn_udp::*;
 use tokio::io::Interest;
+
+use crate::types::TargetAddr;
+
+#[derive(Debug, Clone)]
+pub struct UdpPacket {
+	pub target:  TargetAddr,
+	pub payload: Bytes,
+}
 
 pub trait AbstractUdpSocket: Send + Sync {
 	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;

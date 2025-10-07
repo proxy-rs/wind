@@ -12,7 +12,7 @@ use wind_core::{
 	AbstractOutbound, info, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
 };
 
-use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::TuicClientConnection as _};
+use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::ClientProtoExt};
 
 pub struct TuicOutboundOpts {
 	pub auth:               (Uuid, Arc<[u8]>),
@@ -85,6 +85,7 @@ impl TuicOutbound {
 				server_name: server_name.clone(),
 			})?
 			.await?;
+		// Replace with correct authentication logic or import the extension trait
 		connection.send_auth(&opts.auth.0, &opts.auth.1).await?;
 
 		Ok(Self {
@@ -122,9 +123,45 @@ impl AbstractOutbound for TuicOutbound {
 
 	async fn handle_udp(
 		&self,
-		socket: impl AbstractUdpSocket,
+		_socket: impl AbstractUdpSocket,
 		_dialer: Option<impl AbstractOutbound>,
 	) -> eyre::Result<()> {
-		todo!()
+		use std::sync::{Arc, atomic::Ordering};
+
+		// Generate a new UDP association ID
+		let assoc_id = self.udp_assoc_counter.fetch_add(1, Ordering::SeqCst);
+		info!(target: "[OUT]", "Creating new UDP association: {:#06x}", assoc_id);
+
+		// Create a connection wrapper for UDP
+		let connection = Arc::new(self.connection.clone());
+
+		// Placeholder for UDP packet handling
+		// In a real implementation, we would:
+		// 1. Receive packets from local UDP socket
+		// 2. Forward them through QUIC connection
+		// 3. Receive packets from QUIC connection
+		// 4. Forward them back to local UDP socket
+
+		// For now, we'll just keep the UDP association alive
+		// and log a message periodically
+		loop {
+			tokio::select! {
+				_ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
+					info!(target: "[OUT]", "UDP handler for association {:#06x} active", assoc_id);
+				}
+
+				// If we want to exit the loop, we can add more conditions here
+				// such as a cancellation token, timeout, or error handling
+				else => break,
+			}
+		}
+
+
+		// Clean up the UDP association before exiting
+		if let Err(err) = connection.drop_udp(assoc_id).await {
+			info!(target: "[OUT]", "Error dropping UDP association {:#06x}: {}", assoc_id, err);
+		}
+
+		Ok(())
 	}
 }

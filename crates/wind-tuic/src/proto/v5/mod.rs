@@ -18,7 +18,7 @@ use crate::{Error, SendDatagramSnafu};
 
 const VER: u8 = 5;
 
-pub trait TuicClientConnection {
+pub trait ClientProtoExt {
 	fn send_auth(
 		&self,
 		uuid: &uuid::Uuid,
@@ -41,7 +41,7 @@ pub trait TuicClientConnection {
 	fn drop_udp(&self, assoc_id: u16) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
-impl TuicClientConnection for quinn::Connection {
+impl ClientProtoExt for quinn::Connection {
 	async fn send_auth(&self, uuid: &uuid::Uuid, secret: &[u8]) -> Result<(), Error> {
 		let mut token = [0u8; 32];
 		self.export_keying_material(&mut token, uuid.as_bytes(), secret)?;
@@ -80,7 +80,7 @@ impl TuicClientConnection for quinn::Connection {
 		pkt_id: u16,
 		addr: &TargetAddr,
 		payload: bytes::Bytes,
-		datagram: bool,
+		_datagram: bool,
 	) -> Result<(), Error> {
 		let mut send = self.open_uni().await?;
 		let mut buf = BytesMut::with_capacity(12);

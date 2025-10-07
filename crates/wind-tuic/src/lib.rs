@@ -3,7 +3,7 @@
 use std::{backtrace::Backtrace, net::SocketAddr};
 
 pub mod proto;
-
+mod task;
 pub mod tls;
 
 #[cfg(feature = "server")]
@@ -55,6 +55,21 @@ pub enum Error {
 	#[snafu(display("Failed to send datagram"))]
 	SendDatagram {
 		source:    quinn::SendDatagramError,
+		backtrace: Backtrace,
+	},
+	#[snafu(display("Failed to receive datagram"))]
+	ReceiveDatagram {
+		source:    quinn::ConnectionError,
+		backtrace: Backtrace,
+	},
+	#[snafu(display("Failed to accept bi-directional stream"))]
+	ReceiveBi {
+		source:    quinn::ConnectionError,
+		backtrace: Backtrace,
+	},
+	#[snafu(display("Failed to accept uni-directional stream"))]
+	ReceiveUni {
+		source:    quinn::ConnectionError,
 		backtrace: Backtrace,
 	},
 }
