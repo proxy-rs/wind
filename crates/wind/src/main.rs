@@ -2,11 +2,12 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 
 use clap::Parser as _;
 use tokio::task::JoinSet;
+use tokio_util::task::TaskTracker;
 use tracing::Level;
 use uuid::Uuid;
 use wind_core::{
-	AbstractOutbound, InboundCallback, inbound::AbstractInbound, info, tcp::AbstractTcpStream,
-	types::TargetAddr, udp::AbstractUdpSocket,
+	AbstractOutbound, AppContext, InboundCallback, inbound::AbstractInbound, info,
+	tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
 };
 use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
 use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
@@ -107,7 +108,11 @@ async fn main() -> eyre::Result<()> {
 		skip_cert_verify:   true,
 		alpn:               vec![String::from("h3")],
 	};
+	let ctx = Arc::new(AppContext {
+		tasks: TaskTracker::new(),
+	});
 	let outbound = TuicOutbound::new(
+		ctx,
 		"127.0.0.1:9443".parse()?,
 		"localhost".to_string(),
 		tuic_opts,

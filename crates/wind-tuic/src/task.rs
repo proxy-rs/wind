@@ -1,35 +1,53 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
+use bytes::Bytes;
+use crossfire::AsyncRx;
+use eyre::eyre;
+use quinn::{RecvStream, SendStream};
 use tokio_util::sync::CancellationToken;
-use wind_core::info;
+use wind_core::{AppContext, info};
 
 use crate::Error;
 
 const SPSC_BUFFER_SIZE: usize = 8;
 
+type IncomingRx = (
+	AsyncRx<Bytes>,
+	AsyncRx<(SendStream, RecvStream)>,
+	AsyncRx<RecvStream>,
+);
+
 pub trait ClientTaskExt {
-	async fn handle_incoming(&self, cancel_token: CancellationToken) -> Result<(), Error>;
+	async fn handle_incoming(
+		&self,
+		ctx: Arc<AppContext>,
+		cancel_token: CancellationToken,
+	) -> Result<IncomingRx, Error>;
 }
 
 impl ClientTaskExt for quinn::Connection {
-	async fn handle_incoming(&self, cancel_token: CancellationToken) -> Result<(), Error> {
+	async fn handle_incoming(
+		&self,
+		ctx: Arc<AppContext>,
+		cancel_token: CancellationToken,
+	) -> Result<IncomingRx, Error> {
 		// Create channels for datagrams
-		let (datagram_tx, _datagram_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
+		let (datagram_tx, datagram_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
 		let conn_datagram = self.clone();
 		let cancel_datagram = cancel_token.clone();
 
 		// Create channels for bidirectional streams
-		let (bi_tx, _bi_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
+		let (bi_tx, bi_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
 		let conn_bi = self.clone();
 		let cancel_bi = cancel_token.clone();
 
 		// Create channels for unidirectional streams
-		let (uni_tx, _uni_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
+		let (uni_tx, uni_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
 		let conn_uni = self.clone();
 		let cancel_uni = cancel_token.clone();
 
 		// Spawn task for handling datagrams
-		tokio::spawn(async move {
+		ctx.tasks.spawn(async move {
 			loop {
 				tokio::select! {
 					res = conn_datagram.read_datagram() => {
@@ -45,14 +63,14 @@ impl ClientTaskExt for quinn::Connection {
 					}
 					_ = cancel_datagram.cancelled() => {
 						info!("Cancellation requested for datagram task");
-						break;
+						return;
 					}
 				}
 			}
 		});
 
 		// Spawn task for handling bidirectional streams
-		tokio::spawn(async move {
+		ctx.tasks.spawn(async move {
 			loop {
 				tokio::select! {
 					res = conn_bi.accept_bi() => {
@@ -73,8 +91,9 @@ impl ClientTaskExt for quinn::Connection {
 				}
 			}
 		});
+
 		// Spawn task for handling unidirectional streams
-		tokio::spawn(async move {
+		ctx.tasks.spawn(async move {
 			loop {
 				tokio::select! {
 					res = conn_uni.accept_uni() => {
@@ -96,8 +115,8 @@ impl ClientTaskExt for quinn::Connection {
 			}
 		});
 
-		// The function now directly handles the streams and doesn't need to return the
-		// receivers
-		Ok(())
+		// Return the tuple of receivers for datagrams, bidirectional, and
+		// unidirectional streams
+		Ok((datagram_rx, bi_rx, uni_rx))
 	}
 }

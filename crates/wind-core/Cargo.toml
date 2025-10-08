@@ -13,6 +13,7 @@ quic = ["quinn"]
 [dependencies]
 pin-project = "1"
 tokio = { version = "*", default-features = false, features = ["io-util"]}
+tokio-util = { version = "0.7", features = ["rt"] }
 
 quinn = { version = "*", default-features = false, optional = true }
 quinn-udp = "0.5"

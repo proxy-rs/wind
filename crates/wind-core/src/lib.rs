@@ -11,8 +11,14 @@ pub mod types;
 pub use inbound::*;
 pub use interface::*;
 pub use outbound::*;
+use tokio_util::task::TaskTracker;
 
 pub mod log;
 
 pub mod tcp;
 pub mod udp;
+
+
+pub struct AppContext {
+	pub tasks: TaskTracker,
+}

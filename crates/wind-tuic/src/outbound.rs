@@ -8,6 +8,8 @@ use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use uuid::Uuid;
+// Import AppContext from its module (adjust the path if needed)
+use wind_core::AppContext;
 use wind_core::{
 	AbstractOutbound, info, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
 };
@@ -35,6 +37,7 @@ pub struct TuicOutbound {
 
 impl TuicOutbound {
 	pub async fn new(
+		ctx: Arc<AppContext>,
 		peer_addr: SocketAddr,
 		server_name: String,
 		opts: TuicOutboundOpts,
@@ -85,7 +88,7 @@ impl TuicOutbound {
 				server_name: server_name.clone(),
 			})?
 			.await?;
-		// Replace with correct authentication logic or import the extension trait
+
 		connection.send_auth(&opts.auth.0, &opts.auth.1).await?;
 
 		Ok(Self {
