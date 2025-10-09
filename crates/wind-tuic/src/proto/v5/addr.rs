@@ -1,17 +1,14 @@
-// Standard library imports
 use std::{
 	net::{Ipv4Addr, Ipv6Addr},
 	str,
 };
 
-// External crate imports
 use bytes::{Buf, BufMut};
 use num_enum::{FromPrimitive, IntoPrimitive};
 use snafu::{ResultExt, ensure};
 use tokio_util::codec::{Decoder, Encoder};
 use wind_core::types::TargetAddr;
 
-// Internal imports
 use crate::{
 	ProtoError,
 	proto::{

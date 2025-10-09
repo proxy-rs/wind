@@ -1,7 +1,6 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use clap::Parser as _;
-use tokio::task::JoinSet;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::Level;
 use uuid::Uuid;
@@ -110,7 +109,7 @@ async fn main() -> eyre::Result<()> {
 	};
 	let ctx = Arc::new(AppContext {tasks:TaskTracker::new(), token: CancellationToken::new() });
 	let outbound = TuicOutbound::new(
-		ctx,
+		ctx.clone(),
 		"127.0.0.1:9443".parse()?,
 		"localhost".to_string(),
 		tuic_opts,
@@ -121,24 +120,21 @@ async fn main() -> eyre::Result<()> {
 	let manager = Manager { inbound, outbound };
 	let manager = Arc::new(manager);
 
-	let mut set: JoinSet<eyre::Result<()>> = JoinSet::new();
 	let manager_clone = manager.clone();
-	set.spawn(async move {
+	ctx.tasks.spawn(async move {
 		manager_clone.outbound.start_poll().await?;
-		Ok(())
+		eyre::Ok(())
 	});
 
 	let manager_clone = manager.clone();
-	set.spawn(async move {
+	ctx.tasks.spawn(async move {
 		manager_clone.inbound.listen(manager.deref()).await?;
-		Ok(())
+		eyre::Ok(())
 	});
-	while let Some(v) = set.join_next().await {
-		if let Ok(Err(e)) = v {
-			set.shutdown().await;
-			return Err(e);
-		}
-	}
-
+	tokio::signal::ctrl_c().await?;
+	info!(target: "[MAIN]", "Ctrl-C received, shutting down");
+	ctx.token.cancel();
+	tokio::time::timeout(Duration::from_secs(10), ctx.tasks.wait()).await?;
+	info!(target: "[MAIN]", "Shutdown complete");
 	Ok(())
 }

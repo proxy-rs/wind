@@ -12,7 +12,7 @@ wind-socks = { path = "../wind-socks"}
 wind-tuic = { path = "../wind-tuic"}
 
 # Async
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
 tokio-util = { version = "*", features = ["rt"] }
 
 tracing = "*"
