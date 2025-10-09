@@ -8,13 +8,12 @@ use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use uuid::Uuid;
-// Import AppContext from its module (adjust the path if needed)
-use wind_core::AppContext;
 use wind_core::{
-	AbstractOutbound, info, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
+	AbstractOutbound, AppContext, info, tcp::AbstractTcpStream, types::TargetAddr,
+	udp::AbstractUdpSocket, warn,
 };
 
-use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::ClientProtoExt};
+use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::ClientProtoExt, task::ClientTaskExt};
 
 pub struct TuicOutboundOpts {
 	pub auth:               (Uuid, Arc<[u8]>),
@@ -104,48 +103,58 @@ impl TuicOutbound {
 	}
 
 	pub async fn start_poll(&self) -> eyre::Result<()> {
-		// Create interval timer with the configured heartbeat duration
-		let mut interval = tokio::time::interval(self.opts.heartbeat);
-
-		// Make the first interval tick happen immediately
-		interval.tick().await;
-
-		// Set up heartbeat failure counter for connection health monitoring
-		let mut failures = 0;
-		const MAX_FAILURES: usize = 3;
-
 		// Monitor cancellation token for shutdown
-		let cancel_token = self.ctx.token.clone();
+		let cancel_token = self.ctx.token.child_token();
+		let connection = self.connection.clone();
 
-		loop {
-			tokio::select! {
-				_ = interval.tick() => {
-					match self.connection.send_heartbeat().await {
-						Ok(_) => {
-							// Reset failure counter on successful heartbeat
-							if failures > 0 {
-								info!(target: "[OUT]", "Heartbeat succeeded after {} failures", failures);
-								failures = 0;
-							}
-						}
-						Err(e) => {
-							// Count failures and abort after too many consecutive failures
-							failures += 1;
-							info!(target: "[OUT]", "Heartbeat failed ({}/{}): {}", failures, MAX_FAILURES, e);
+		let mut hb_interval = tokio::time::interval(self.opts.heartbeat);
+		const HEARTBEAT_MAX_FAILURES: usize = 3;
 
-							if failures >= MAX_FAILURES {
-								return Err(eyre::eyre!("Too many heartbeat failures ({}/{})", failures, MAX_FAILURES));
+		let (datagram_rx, bi_rx, uni_rx) = self
+			.connection
+			.handle_incoming(self.ctx.clone(), cancel_token.clone())
+			.await?;
+
+		self.ctx.tasks.spawn(async move {
+			let mut hb_failures = 0;
+			hb_interval.tick().await;
+
+			loop {
+				tokio::select! {
+					_ = cancel_token.cancelled() => {
+						info!(target: "[OUT]", "Heartbeat poll cancelled");
+						return Ok(());
+					}
+					_ = hb_interval.tick() => {
+						if let Err(e) = connection.send_heartbeat().await {
+							hb_failures += 1;
+							info!(target: "[OUT]", "Heartbeat failed ({}/{}): {}", hb_failures, HEARTBEAT_MAX_FAILURES, e);
+
+							if hb_failures >= HEARTBEAT_MAX_FAILURES {
+								return Err(eyre::eyre!("Too many heartbeat failures ({}/{})", hb_failures, HEARTBEAT_MAX_FAILURES));
 							}
+						} else if hb_failures > 0 {
+							info!(target: "[OUT]", "Heartbeat succeeded after {} failures", hb_failures);
+							hb_failures = 0;
 						}
 					}
-				}
+					Ok(_) = bi_rx.recv() => {
+						warn!(target: "[OUT]", "Received bi-directional stream on Outbound");
+					}
+					Ok(bytes) = datagram_rx.recv() => {
+						info!(target: "[OUT]", "Received datagram: {} bytes", bytes.len());
+						// Process the received datagram
 
-				_ = cancel_token.cancelled() => {
-					info!(target: "[OUT]", "Heartbeat poll cancelled");
-					return Ok(());
+					}
+
+					Ok(recv) = uni_rx.recv() => {
+						info!(target: "[OUT]", "Received uni-directional stream");
+					}
 				}
 			}
-		}
+		});
+
+		Ok(())
 	}
 }
 

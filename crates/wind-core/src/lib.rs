@@ -18,7 +18,6 @@ pub mod log;
 pub mod tcp;
 pub mod udp;
 
-
 pub struct AppContext {
 	pub tasks: TaskTracker,
 	pub token: CancellationToken,

@@ -107,7 +107,10 @@ async fn main() -> eyre::Result<()> {
 		skip_cert_verify:   true,
 		alpn:               vec![String::from("h3")],
 	};
-	let ctx = Arc::new(AppContext {tasks:TaskTracker::new(), token: CancellationToken::new() });
+	let ctx = Arc::new(AppContext {
+		tasks: TaskTracker::new(),
+		token: CancellationToken::new(),
+	});
 	let outbound = TuicOutbound::new(
 		ctx.clone(),
 		"127.0.0.1:9443".parse()?,
