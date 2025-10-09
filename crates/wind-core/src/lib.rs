@@ -11,7 +11,7 @@ pub mod types;
 pub use inbound::*;
 pub use interface::*;
 pub use outbound::*;
-use tokio_util::task::TaskTracker;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 pub mod log;
 
@@ -21,4 +21,5 @@ pub mod udp;
 
 pub struct AppContext {
 	pub tasks: TaskTracker,
+	pub token: CancellationToken,
 }

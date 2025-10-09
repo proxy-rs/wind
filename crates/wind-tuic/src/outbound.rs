@@ -27,6 +27,7 @@ pub struct TuicOutboundOpts {
 }
 
 pub struct TuicOutbound {
+	pub ctx:               Arc<AppContext>,
 	pub endpoint:          quinn::Endpoint,
 	pub peer_addr:         SocketAddr,
 	pub server_name:       String,
@@ -92,6 +93,7 @@ impl TuicOutbound {
 		connection.send_auth(&opts.auth.0, &opts.auth.1).await?;
 
 		Ok(Self {
+			ctx,
 			endpoint,
 			peer_addr,
 			server_name,
@@ -102,11 +104,47 @@ impl TuicOutbound {
 	}
 
 	pub async fn start_poll(&self) -> eyre::Result<()> {
+		// Create interval timer with the configured heartbeat duration
 		let mut interval = tokio::time::interval(self.opts.heartbeat);
 
+		// Make the first interval tick happen immediately
+		interval.tick().await;
+
+		// Set up heartbeat failure counter for connection health monitoring
+		let mut failures = 0;
+		const MAX_FAILURES: usize = 3;
+
+		// Monitor cancellation token for shutdown
+		let cancel_token = self.ctx.token.clone();
+
 		loop {
-			interval.tick().await;
-			self.connection.send_heartbeat().await?;
+			tokio::select! {
+				_ = interval.tick() => {
+					match self.connection.send_heartbeat().await {
+						Ok(_) => {
+							// Reset failure counter on successful heartbeat
+							if failures > 0 {
+								info!(target: "[OUT]", "Heartbeat succeeded after {} failures", failures);
+								failures = 0;
+							}
+						}
+						Err(e) => {
+							// Count failures and abort after too many consecutive failures
+							failures += 1;
+							info!(target: "[OUT]", "Heartbeat failed ({}/{}): {}", failures, MAX_FAILURES, e);
+
+							if failures >= MAX_FAILURES {
+								return Err(eyre::eyre!("Too many heartbeat failures ({}/{})", failures, MAX_FAILURES));
+							}
+						}
+					}
+				}
+
+				_ = cancel_token.cancelled() => {
+					info!(target: "[OUT]", "Heartbeat poll cancelled");
+					return Ok(());
+				}
+			}
 		}
 	}
 }
@@ -129,14 +167,11 @@ impl AbstractOutbound for TuicOutbound {
 		_socket: impl AbstractUdpSocket,
 		_dialer: Option<impl AbstractOutbound>,
 	) -> eyre::Result<()> {
-		use std::sync::{Arc, atomic::Ordering};
+		use std::sync::atomic::Ordering;
 
 		// Generate a new UDP association ID
 		let assoc_id = self.udp_assoc_counter.fetch_add(1, Ordering::SeqCst);
 		info!(target: "[OUT]", "Creating new UDP association: {:#06x}", assoc_id);
-
-		// Create a connection wrapper for UDP
-		let connection = Arc::new(self.connection.clone());
 
 		// Placeholder for UDP packet handling
 		// In a real implementation, we would:
@@ -147,21 +182,20 @@ impl AbstractOutbound for TuicOutbound {
 
 		// For now, we'll just keep the UDP association alive
 		// and log a message periodically
+		let cancel = self.ctx.token.clone();
 		loop {
 			tokio::select! {
 				_ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
 					info!(target: "[OUT]", "UDP handler for association {:#06x} active", assoc_id);
 				}
 
-				// If we want to exit the loop, we can add more conditions here
-				// such as a cancellation token, timeout, or error handling
-				else => break,
+				_ = cancel.cancelled() => break,
 			}
 		}
 
 
 		// Clean up the UDP association before exiting
-		if let Err(err) = connection.drop_udp(assoc_id).await {
+		if let Err(err) = self.connection.drop_udp(assoc_id).await {
 			info!(target: "[OUT]", "Error dropping UDP association {:#06x}: {}", assoc_id, err);
 		}
 

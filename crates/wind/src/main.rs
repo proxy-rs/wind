@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 
 use clap::Parser as _;
 use tokio::task::JoinSet;
-use tokio_util::task::TaskTracker;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::Level;
 use uuid::Uuid;
 use wind_core::{
@@ -108,9 +108,7 @@ async fn main() -> eyre::Result<()> {
 		skip_cert_verify:   true,
 		alpn:               vec![String::from("h3")],
 	};
-	let ctx = Arc::new(AppContext {
-		tasks: TaskTracker::new(),
-	});
+	let ctx = Arc::new(AppContext {tasks:TaskTracker::new(), token: CancellationToken::new() });
 	let outbound = TuicOutbound::new(
 		ctx,
 		"127.0.0.1:9443".parse()?,

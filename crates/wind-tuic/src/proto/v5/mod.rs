@@ -43,15 +43,25 @@ pub trait ClientProtoExt {
 
 impl ClientProtoExt for quinn::Connection {
 	async fn send_auth(&self, uuid: &uuid::Uuid, secret: &[u8]) -> Result<(), Error> {
+		// Generate the authentication token
 		let mut token = [0u8; 32];
 		self.export_keying_material(&mut token, uuid.as_bytes(), secret)?;
 
+		// Create and encode the auth command
 		let auth_cmd = Command::Auth { uuid: *uuid, token };
-		let mut send = self.open_uni().await?;
-		let mut buf = BytesMut::with_capacity(50);
+
+		// Pre-calculate the exact buffer capacity needed: 2 bytes for header + 16 bytes
+		// for UUID + 32 bytes for token
+		let mut buf = BytesMut::with_capacity(2 + 16 + 32);
+
+		// Encode the header and command
 		HeaderCodec.encode(Header::new(CmdType::Auth), &mut buf)?;
 		CmdCodec(CmdType::Auth).encode(auth_cmd, &mut buf)?;
+
+		// Open a unidirectional stream and send the data
+		let mut send = self.open_uni().await?;
 		send.write_chunk(buf.into()).await?;
+
 		Ok(())
 	}
 
@@ -105,15 +115,23 @@ impl ClientProtoExt for quinn::Connection {
 		let mut send = self.open_uni().await?;
 		let mut buf = BytesMut::with_capacity(4);
 		HeaderCodec.encode(Header::new(CmdType::Dissociate), &mut buf)?;
-		CmdCodec(CmdType::Packet).encode(Command::Dissociate { assoc_id }, &mut buf)?;
+		CmdCodec(CmdType::Dissociate).encode(Command::Dissociate { assoc_id }, &mut buf)?;
 		send.write_chunk(buf.into()).await?;
 		Ok(())
 	}
 
 	async fn send_heartbeat(&self) -> Result<(), Error> {
+		// Pre-allocate the exact size needed for the heartbeat: 2 bytes (version +
+		// command)
 		let mut buf = BytesMut::with_capacity(2);
+
+		// Encode the heartbeat command header (no additional payload needed)
 		HeaderCodec.encode(Header::new(CmdType::Heartbeat), &mut buf)?;
-		self.send_datagram(buf.into()).context(SendDatagramSnafu)?;
+
+		// Send it as a datagram for lowest latency
+		self.send_datagram(buf.freeze())
+			.context(SendDatagramSnafu)?;
+
 		Ok(())
 	}
 }

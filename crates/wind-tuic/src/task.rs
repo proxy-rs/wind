@@ -3,13 +3,16 @@ use std::{sync::Arc, time::Duration};
 use bytes::Bytes;
 use crossfire::AsyncRx;
 use eyre::eyre;
-use quinn::{RecvStream, SendStream};
+use quinn::{ConnectionError, RecvStream, SendStream};
 use tokio_util::sync::CancellationToken;
 use wind_core::{AppContext, info};
 
 use crate::Error;
 
-const SPSC_BUFFER_SIZE: usize = 8;
+/// Size of the single-producer single-consumer buffer for QUIC streams
+/// This controls how many elements can be buffered in the channel
+/// before backpressure is applied
+const SPSC_BUFFER_SIZE: usize = 16;
 
 type IncomingRx = (
 	AsyncRx<Bytes>,
@@ -53,7 +56,7 @@ impl ClientTaskExt for quinn::Connection {
 					res = conn_datagram.read_datagram() => {
 						match res {
 							Ok(datagram) => {
-								info!("Received datagram: {:?}", &datagram);
+								info!("Received datagram: {} bytes", datagram.len());
 								if let Err(e) = datagram_tx.send_timeout(datagram, Duration::from_secs(1)).await {
 									unimplemented!("unhandled error {e:?}");
 								}
