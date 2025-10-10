@@ -10,17 +10,17 @@ use tokio::time::timeout;
 use tokio_util::codec::Encoder;
 use wind_core::{types::TargetAddr, udp::UdpPacket};
 
-use crate::proto::{
-	AddressCodec, ClientProtoExt as _, CmdCodec, CmdType, Command, Header, HeaderCodec,
+use crate::{
+	Error,
+	proto::{AddressCodec, ClientProtoExt as _, CmdCodec, CmdType, Command, Header, HeaderCodec},
 };
 
 // Define MTU sizes for UDP segmentation
-const MAX_UDP_PAYLOAD_SIZE: usize = 1420; // Conservative default MTU - header sizes
 const MAX_FRAGMENTS: u8 = 255; // Maximum number of fragments allowed
 const FRAGMENT_TIMEOUT_MS: u64 = 30000; // 30 seconds timeout for fragment reassembly
 
 pub struct UdpStream {
-	connection:      Arc<quinn::Connection>,
+	connection:      quinn::Connection,
 	assoc_id:        u16,
 	rx:              AsyncRx<UdpPacket>,
 	next_pkt_id:     u16, // Track packet IDs for fragmentation
@@ -127,7 +127,7 @@ impl FragmentReassemblyBuffer {
 }
 
 impl UdpStream {
-	pub fn new(connection: Arc<quinn::Connection>, assoc_id: u16, rx: AsyncRx<UdpPacket>) -> Self {
+	pub fn new(connection: quinn::Connection, assoc_id: u16, rx: AsyncRx<UdpPacket>) -> Self {
 		Self {
 			connection,
 			assoc_id,
@@ -141,8 +141,8 @@ impl UdpStream {
 		let payload_len = packet.payload.len();
 
 		let addr_size = match packet.target {
-			TargetAddr::IPv4(_, _) => 1 + 4 + 2,    // Type (1) + IPv4 (4) + Port (2)
-			TargetAddr::IPv6(_, _) => 1 + 16 + 2,   // Type (1) + IPv6 (16) + Port (2)
+			TargetAddr::IPv4(..) => 1 + 4 + 2, // Type (1) + IPv4 (4) + Port (2)
+			TargetAddr::IPv6(..) => 1 + 16 + 2, // Type (1) + IPv6 (16) + Port (2)
 			TargetAddr::Domain(ref domain, _) => {
 				let domain_len = domain.len();
 				if domain_len > 255 {
@@ -193,11 +193,11 @@ impl UdpStream {
 
 		// Fragment and send each piece
 		for frag_id in 0..fragment_count {
-			let start = frag_id * MAX_UDP_PAYLOAD_SIZE;
-			let end = std::cmp::min(start + MAX_UDP_PAYLOAD_SIZE, payload_len);
+			let start = todo!();
+			let end = todo!();
 
 			// Extract this fragment's payload
-			let fragment_payload = packet.payload.slice(start..end);
+			let fragment_payload = packet.payload.slice(todo!());
 
 			// Send the fragment with proper command parameters
 			let mut send = self.connection.open_uni().await?;
@@ -262,7 +262,7 @@ impl UdpStream {
 			.add_fragment(assoc_id, pkt_id, frag_total, frag_id, payload, target)
 	}
 
-	pub async fn close(&mut self) -> eyre::Result<()> {
+	pub async fn close(&mut self) -> Result<(), Error> {
 		// Close the UDP association
 		self.connection.drop_udp(self.assoc_id).await
 	}

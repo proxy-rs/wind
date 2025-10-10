@@ -26,7 +26,7 @@ wind-core = { path = "../wind-core", features = ["quic"]}
 
 
 # Async
-tokio = { version = "*", default-features = false, features = ["net"] }
+tokio = { version = "1", default-features = false, features = ["net"] }
 tokio-util = { version = "*", features = ["codec"] }
 quinn = { version = "*", default-features = false, features = ["runtime-tokio"]}
 crossfire = { version = "2", features = ["tokio"] }

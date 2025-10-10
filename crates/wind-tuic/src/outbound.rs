@@ -7,6 +7,7 @@ use std::{
 use quinn::TokioRuntime;
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wind_core::{
 	AbstractOutbound, AppContext, info, tcp::AbstractTcpStream, types::TargetAddr,
@@ -33,6 +34,7 @@ pub struct TuicOutbound {
 	pub opts:              TuicOutboundOpts,
 	pub connection:        quinn::Connection,
 	pub udp_assoc_counter: AtomicU16,
+	pub token:             CancellationToken,
 }
 
 impl TuicOutbound {
@@ -92,6 +94,7 @@ impl TuicOutbound {
 		connection.send_auth(&opts.auth.0, &opts.auth.1).await?;
 
 		Ok(Self {
+			token: ctx.token.child_token(),
 			ctx,
 			endpoint,
 			peer_addr,
@@ -147,7 +150,7 @@ impl TuicOutbound {
 
 					}
 
-					Ok(recv) = uni_rx.recv() => {
+					Ok(_recv) = uni_rx.recv() => {
 						info!(target: "[OUT]", "Received uni-directional stream");
 					}
 				}
@@ -177,20 +180,45 @@ impl AbstractOutbound for TuicOutbound {
 		_dialer: Option<impl AbstractOutbound>,
 	) -> eyre::Result<()> {
 		use std::sync::atomic::Ordering;
-
+		// Create a cancel token for single udp session
+		let _cancel = self.token.child_token();
 		// Generate a new UDP association ID
 		let assoc_id = self.udp_assoc_counter.fetch_add(1, Ordering::SeqCst);
 		info!(target: "[OUT]", "Creating new UDP association: {:#06x}", assoc_id);
-
-		// Placeholder for UDP packet handling
-		// In a real implementation, we would:
-		// 1. Receive packets from local UDP socket
-		// 2. Forward them through QUIC connection
-		// 3. Receive packets from QUIC connection
-		// 4. Forward them back to local UDP socket
-
-		// For now, we'll just keep the UDP association alive
-		// and log a message periodically
+		// For now, we'll comment out this section since it needs further refactoring
+		// The issue is that AbstractUdpSocket's recv_from is not 'static, which
+		// complicates using it in a spawned task A proper solution would require
+		// changing the approach to UDP handling let (tx, _rx) =
+		// crossfire::spsc::bounded_async(16);
+		//
+		// let socket_arc = Arc::new(socket);
+		//
+		// self.ctx.tasks.spawn(async move {
+		//     let mut buf = [0u8; 65536]; // UDP max packet size
+		//
+		//     loop {
+		//         tokio::select! {
+		//             _ = cancel.cancelled() => break,
+		//             result = socket_arc.recv_from(&mut buf) => {
+		//                 match result {
+		//                     Ok((len, _addr)) => {
+		//                         let udp_pkt = buf[..len].to_vec();
+		//                         if let Err(err) = tx.send(udp_pkt).await {
+		//                             warn!(target: "[OUT]", "Failed to forward UDP
+		// packet to TUIC UDP stream: {}", err);                             break;
+		//                         }
+		//                     },
+		//                     Err(err) => {
+		//                         warn!(target: "[OUT]", "Failed to receive UDP packet:
+		// {}", err);                         break;
+		//                     }
+		//                 }
+		//             }
+		//         }
+		//     }
+		// });
+		// let mut udp_stream =
+		// 	UdpStream::new(self.connection.clone(), assoc_id, socket.recv()).await?;
 		let cancel = self.ctx.token.clone();
 		loop {
 			tokio::select! {

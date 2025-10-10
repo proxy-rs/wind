@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 wind-core = { path = "../wind-core"}
 # Async
-tokio = { version = "*", default-features = false, features = ["net"] }
+tokio = { version = "1", default-features = false, features = ["net"] }
 tokio-util = { version = "*", features = ["codec"] }
 tokio-stream = "*"
 futures-util = { version = "*", default-features = false, features = ["sink"] }

@@ -1,6 +1,7 @@
 use std::{
 	fmt::Debug,
-	io::IoSliceMut,
+	future::Future,
+	io::{IoSliceMut, Result as IoResult},
 	net::SocketAddr,
 	pin::Pin,
 	sync::Arc,
@@ -8,6 +9,7 @@ use std::{
 };
 
 use bytes::Bytes;
+use futures::future::poll_fn;
 #[cfg(feature = "quic")]
 pub use quinn::UdpPoller;
 pub use quinn_udp::*;
@@ -15,42 +17,89 @@ use tokio::io::Interest;
 
 use crate::types::TargetAddr;
 
+#[cfg(not(feature = "quic"))]
+pub trait UdpPoller: Send + Sync + Debug + 'static {
+	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<std::io::Result<()>>;
+}
+
 #[derive(Debug, Clone)]
 pub struct UdpPacket {
 	pub target:  TargetAddr,
 	pub payload: Bytes,
 }
 
+// TODO impl quinn::AsyncUdpSocket for AbstractUdpSocket
+
 pub trait AbstractUdpSocket: Send + Sync {
+	/// Creates a UDP socket I/O poller.
 	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;
 
-	fn try_send(&self, transmit: &Transmit) -> std::io::Result<()>;
+	/// Tries to send a UDP datagram to the specified destination.
+	fn try_send(&self, transmit: &Transmit) -> IoResult<()>;
 
+	/// Poll to receive a UDP datagram.
 	fn poll_recv(
 		&self,
 		cx: &mut Context,
 		bufs: &mut [IoSliceMut<'_>],
 		meta: &mut [RecvMeta],
-	) -> Poll<std::io::Result<usize>>;
+	) -> Poll<IoResult<usize>>;
 
-	fn local_addr(&self) -> std::io::Result<SocketAddr>;
+	/// Receive a UDP datagram.
+	fn recv(
+		&self,
+		bufs: &mut [IoSliceMut<'_>],
+		meta: &mut [RecvMeta],
+	) -> impl Future<Output = IoResult<usize>> + Send {
+		poll_fn(|cx| self.poll_recv(cx, bufs, meta))
+	}
 
+	/// Returns the local socket address.
+	fn local_addr(&self) -> IoResult<SocketAddr>;
+
+	/// Maximum number of segments that can be transmitted in one call.
 	fn max_transmit_segments(&self) -> usize {
 		1
 	}
 
+	/// Maximum number of segments that can be received in one call.
 	fn max_receive_segments(&self) -> usize {
 		1
 	}
 
+	/// Returns whether the socket may fragment packets.
 	fn may_fragment(&self) -> bool {
 		true
 	}
-}
 
-#[cfg(not(feature = "quic"))]
-pub trait UdpPoller: Send + Sync + Debug + 'static {
-	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<std::io::Result<()>>;
+	/// Sends data on the socket to the given address.
+	fn poll_send_to(
+		&self,
+		_cx: &mut Context<'_>,
+		buf: &[u8],
+		target: SocketAddr,
+	) -> Poll<IoResult<usize>> {
+		let transmit = Transmit {
+			destination:  target,
+			contents:     buf,
+			ecn:          None,
+			segment_size: None,
+			src_ip:       None,
+		};
+		match self.try_send(&transmit) {
+			Ok(_) => Poll::Ready(Ok(buf.len())),
+			Err(e) => Poll::Ready(Err(e)),
+		}
+	}
+
+	/// Sends data on the socket to the given address.
+	fn send_to<'a>(
+		&'a self,
+		buf: &'a [u8],
+		target: SocketAddr,
+	) -> impl Future<Output = IoResult<usize>> + Send + 'a {
+		poll_fn(move |cx| self.poll_send_to(cx, buf, target))
+	}
 }
 
 #[derive(Debug)]

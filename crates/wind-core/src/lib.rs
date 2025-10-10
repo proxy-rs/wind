@@ -18,6 +18,9 @@ pub mod log;
 pub mod tcp;
 pub mod udp;
 
+#[cfg(test)]
+mod udp_tests;
+
 pub struct AppContext {
 	pub tasks: TaskTracker,
 	pub token: CancellationToken,

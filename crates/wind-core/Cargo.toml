@@ -12,13 +12,17 @@ quic = ["quinn"]
 
 [dependencies]
 pin-project = "1"
-tokio = { version = "*", default-features = false, features = ["io-util"]}
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "time", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 quinn = { version = "*", default-features = false, optional = true }
 quinn-udp = "0.5"
 
+socket2 = "0.6"
+
 serde = { version = "*", features = ["derive"] }
+
+futures = "*"
 
 
 bytes = "*"
@@ -27,3 +31,4 @@ pin-project-lite = "0.2"
 
 tracing = "*"
 const-str = "0.7"
+rand = "0.9.2"
