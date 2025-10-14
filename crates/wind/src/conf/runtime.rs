@@ -1,14 +1,14 @@
 use wind_socks::inbound::SocksInboundOpt;
 use wind_tuic::outbound::TuicOutboundOpts;
 
-use crate::util::target_addr_to_socket_addr;
+use crate::{conf::persistent::PersistentConfig, util::target_addr_to_socket_addr};
 
 pub struct Config {
 	pub socks_opt: SocksInboundOpt,
 	pub tuic_opt:  TuicOutboundOpts,
 }
 impl Config {
-	pub fn from_persist(config: super::persistent::PersistentConfig) -> Self {
+	pub fn from_persist(config: PersistentConfig) -> Self {
 		Self {
 			socks_opt: SocksInboundOpt {
 				listen_addr: config.socks_opt.listen_addr,
