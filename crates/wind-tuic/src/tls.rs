@@ -32,6 +32,7 @@ pub(crate) fn tls_config(
 		.into_iter()
 		.map(|alpn| alpn.into_bytes())
 		.collect();
+
 	Ok(config)
 }
 

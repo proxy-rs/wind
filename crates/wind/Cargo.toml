@@ -25,12 +25,12 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["t
 const-str = "0.7"
 
 eyre = "*"
-uuid = "*"
+uuid = { version = "1", features = ["serde"] }
 
 # Configuration
 figment = { version = "0.10", features = ["yaml", "env", "toml"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "0.9"
 educe = { version = "0.6", features = ["Default"] }
-humantime-serde = "1.1.1"
+humantime-serde = "1"

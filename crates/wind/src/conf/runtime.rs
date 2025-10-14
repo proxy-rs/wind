@@ -1,7 +1,8 @@
 use uuid::Uuid;
 use wind_socks::inbound::SocksInboundOpt;
 use wind_tuic::outbound::TuicOutboundOpts;
-use wind_core::types::TargetAddr;
+
+use crate::util::target_addr_to_socket_addr;
 
 pub struct Config {
 	pub socks_opt: SocksInboundOpt,
@@ -18,22 +19,10 @@ impl Config {
 				allow_udp:   config.socks_opt.allow_udp,
 			},
 			tuic_opt:  TuicOutboundOpts {
-				server:             (
-					config.tuic_opt.sni.clone(),
-					match config.tuic_opt.server_addr {
-						TargetAddr::Domain(_, port) => port,
-						TargetAddr::IPv4(_, port) => port,
-						TargetAddr::IPv6(_, port) => port,
-					},
-				),
-				peer_addr:          match config.tuic_opt.server_addr {
-					TargetAddr::Domain(_, _) => None, // For domain names, we let outbound.rs perform DNS resolution
-					TargetAddr::IPv4(ip, _) => Some(std::net::IpAddr::V4(ip)),
-					TargetAddr::IPv6(ip, _) => Some(std::net::IpAddr::V6(ip)),
-				},
+				peer_addr:          target_addr_to_socket_addr(&config.tuic_opt.server_addr),
 				sni:                config.tuic_opt.sni.clone(),
 				auth:               (
-					Uuid::parse_str(&config.tuic_opt.uuid).expect("Invalid UUID"),
+					config.tuic_opt.uuid,
 					config.tuic_opt.password.as_bytes().to_vec().into(),
 				),
 				zero_rtt_handshake: config.tuic_opt.zero_rtt_handshake,

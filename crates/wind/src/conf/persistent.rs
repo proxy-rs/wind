@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{
+	net::{Ipv4Addr, SocketAddr},
+	path::PathBuf,
+	time::Duration,
+};
 
 use educe::Educe;
 use figment::{
@@ -6,8 +10,9 @@ use figment::{
 	providers::{Env, Format, Toml, Yaml},
 };
 use serde::{Deserialize, Serialize};
-use wind_socks::inbound::AuthMode;
+use uuid::Uuid;
 use wind_core::types::TargetAddr;
+use wind_socks::inbound::AuthMode;
 
 #[derive(Debug, Deserialize, Serialize, Educe)]
 #[educe(Default)]
@@ -60,14 +65,14 @@ impl From<AuthModeConfig> for AuthMode {
 #[derive(Debug, Deserialize, Serialize, Educe)]
 #[educe(Default)]
 pub struct TuicOpt {
-	#[educe(Default(expression = TargetAddr::Domain("127.0.0.1".to_string(), 9443)))]
+	#[educe(Default = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 9443))]
 	pub server_addr: TargetAddr,
 
 	#[educe(Default = "localhost")]
 	pub sni: String,
 
-	#[educe(Default = "c1e6dbe2-f417-4890-994c-9ee15b926597")]
-	pub uuid: String,
+	#[educe(Default = "c1e6dbe2-f417-4890-994c-9ee15b926597".parse().unwrap())]
+	pub uuid: uuid::Uuid,
 
 	#[educe(Default = "test_passwd")]
 	pub password: String,
@@ -96,26 +101,25 @@ pub struct TuicOpt {
 
 impl PersistentConfig {
 	pub fn export_to_file(&self, file_path: &PathBuf, format: &str) -> eyre::Result<()> {
-		use std::fs;
-		use std::io::Write;
-		
+		use std::{fs, io::Write};
+
 		match format.to_lowercase().as_str() {
 			"yaml" => {
 				let yaml_content = serde_yaml::to_string(&self)?;
 				let mut file = fs::File::create(file_path)?;
 				file.write_all(yaml_content.as_bytes())?;
-			},
+			}
 			"toml" => {
 				let toml_content = toml::to_string_pretty(&self)?;
 				let mut file = fs::File::create(file_path)?;
 				file.write_all(toml_content.as_bytes())?;
-			},
+			}
 			_ => return Err(eyre::eyre!("Unsupported file format: {}", format)),
 		}
-		
+
 		Ok(())
 	}
-	
+
 	pub fn load(config_path: Option<String>, config_dir: Option<PathBuf>) -> eyre::Result<Self> {
 		// Start with empty figment (will use default values via serde)
 		let mut figment = Figment::new();

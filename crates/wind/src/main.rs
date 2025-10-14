@@ -10,6 +10,8 @@ use wind_core::{
 use wind_socks::inbound::SocksInbound;
 use wind_tuic::outbound::TuicOutbound;
 
+
+mod util;
 use crate::{cli::Cli, conf::persistent::PersistentConfig};
 
 mod cli;
@@ -92,13 +94,13 @@ async fn main() -> eyre::Result<()> {
 	if let Some(crate::cli::Commands::Init { format }) = &cli.command {
 		// Create a default configuration
 		let default_config = PersistentConfig::default();
-		
+
 		// Determine format and file name
 		let format_str = match format {
 			crate::cli::ConfigFormat::Yaml => "yaml",
 			crate::cli::ConfigFormat::Toml => "toml",
 		};
-		
+
 		// Determine the file path
 		let file_name = format!("config.{}", format_str);
 		let file_path = if let Some(config_dir) = &cli.config_dir {
@@ -108,13 +110,13 @@ async fn main() -> eyre::Result<()> {
 		} else {
 			std::path::PathBuf::from(&file_name)
 		};
-		
+
 		// Export the configuration
 		default_config.export_to_file(&file_path, format_str)?;
 		println!("Created default configuration at: {}", file_path.display());
 		return Ok(());
 	}
-	
+
 	#[cfg(debug_assertions)]
 	{
 		cli.config = Some("./config.yaml".to_string());
