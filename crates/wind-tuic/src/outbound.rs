@@ -1,13 +1,13 @@
 use std::{
 	io::IoSliceMut,
-	net::{Ipv4Addr, SocketAddr},
+	net::{IpAddr, Ipv4Addr, SocketAddr},
 	sync::{Arc, atomic::AtomicU16},
 	time::Duration,
 };
 
 use eyre::ensure;
 use quinn::{TokioRuntime, udp::RecvMeta};
-use snafu::ResultExt;
+use snafu::{Backtrace, ResultExt};
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -19,6 +19,11 @@ use wind_core::{
 use crate::{BindSocketSnafu, Error, QuicConnectSnafu, proto::ClientProtoExt, task::ClientTaskExt};
 
 pub struct TuicOutboundOpts {
+	// server address and port
+	pub server:             (String, u16),
+	// override peer address, if not set, resolve server name
+	pub peer_addr:          Option<IpAddr>,
+	pub sni:                String,
 	pub auth:               (Uuid, Arc<[u8]>),
 	pub zero_rtt_handshake: bool,
 	pub heartbeat:          Duration,
@@ -32,7 +37,7 @@ pub struct TuicOutbound {
 	pub ctx:               Arc<AppContext>,
 	pub endpoint:          quinn::Endpoint,
 	pub peer_addr:         SocketAddr,
-	pub server_name:       String,
+	pub sni:       String,
 	pub opts:              TuicOutboundOpts,
 	pub connection:        quinn::Connection,
 	pub udp_assoc_counter: AtomicU16,
@@ -40,13 +45,41 @@ pub struct TuicOutbound {
 }
 
 impl TuicOutbound {
-	pub async fn new(
-		ctx: Arc<AppContext>,
-		peer_addr: SocketAddr,
-		server_name: String,
-		opts: TuicOutboundOpts,
-	) -> Result<Self, Error> {
-		// TODO
+	pub async fn new(ctx: Arc<AppContext>, opts: TuicOutboundOpts) -> Result<Self, Error> {
+		// Extract server details from options
+		let server_name = opts.sni.clone();
+		let (host, port) = opts.server.clone();
+
+		// Resolve peer address
+		let peer_addr = match opts.peer_addr {
+			Some(ip) => SocketAddr::new(ip, port),
+			None => {
+				// If peer_addr is not provided, resolve from host name
+				let lookup_result = tokio::net::lookup_host((host.as_str(), port)).await;
+				match lookup_result {
+					Ok(mut addrs) => {
+						if let Some(addr) = addrs.next() {
+							addr
+						} else {
+							return Err(Error::Io {
+								source:    std::io::Error::new(
+									std::io::ErrorKind::NotFound,
+									format!("Failed to resolve host: {}", host),
+								),
+								backtrace: Backtrace::capture(),
+							});
+						}
+					}
+					Err(e) => {
+						return Err(Error::Io {
+							source:    e,
+							backtrace: Backtrace::capture(),
+						});
+					}
+				}
+			}
+		};
+
 		{
 			#[cfg(feature = "aws-lc-rs")]
 			rustls::crypto::aws_lc_rs::default_provider()
@@ -100,7 +133,7 @@ impl TuicOutbound {
 			ctx,
 			endpoint,
 			peer_addr,
-			server_name,
+			sni: server_name,
 			opts,
 			connection,
 			udp_assoc_counter: AtomicU16::new(0),
@@ -199,7 +232,6 @@ impl AbstractOutbound for TuicOutbound {
 				)
 				.await?;
 			ensure!(result == 1, "Expected to receive 1 datagram, got {}", result);
-			let segments = meta.len / meta.stride;
 			loop {
 				tokio::select! {
 					_ = cancel.cancelled() => break,

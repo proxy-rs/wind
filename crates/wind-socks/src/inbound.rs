@@ -11,7 +11,7 @@ use wind_core::{
 	AbstractInbound, InboundCallback, error, info, types::TargetAddr, udp::TokioUdpSocket,
 };
 
-use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu, convert_addr};
+use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu};
 
 pub struct SocksInboundOpt {
 	/// Bind on address address. eg. `127.0.0.1:1080`

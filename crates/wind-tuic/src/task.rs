@@ -2,8 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use crossfire::AsyncRx;
-use eyre::eyre;
-use quinn::{ConnectionError, RecvStream, SendStream};
+use quinn::{RecvStream, SendStream};
 use tokio_util::sync::CancellationToken;
 use wind_core::{AppContext, info};
 

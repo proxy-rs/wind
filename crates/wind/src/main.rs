@@ -3,15 +3,14 @@ use std::{ops::Deref, sync::Arc, time::Duration};
 use clap::Parser as _;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::Level;
-use uuid::Uuid;
 use wind_core::{
 	AbstractOutbound, AppContext, InboundCallback, inbound::AbstractInbound, info,
 	tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
 };
-use wind_socks::inbound::{AuthMode, SocksInbound, SocksInboundOpt};
-use wind_tuic::outbound::{TuicOutbound, TuicOutboundOpts};
+use wind_socks::inbound::SocksInbound;
+use wind_tuic::outbound::TuicOutbound;
 
-use crate::cli::Cli;
+use crate::{cli::Cli, conf::persistent::PersistentConfig};
 
 mod cli;
 mod conf;
@@ -72,7 +71,7 @@ impl AbstractOutbound for Outbounds {
 async fn main() -> eyre::Result<()> {
 	log::init_log(Level::TRACE)?;
 	info!(target: "[MAIN]", "Wind starting");
-	let cli = match Cli::try_parse() {
+	let mut cli = match Cli::try_parse() {
 		Ok(v) => v,
 		Err(err) => {
 			println!("{:#}", err);
@@ -88,37 +87,53 @@ async fn main() -> eyre::Result<()> {
 		println!("wind {VER}");
 		return Ok(());
 	}
-	let socks_opt = SocksInboundOpt {
-		listen_addr: "127.0.0.1:6666".parse()?,
-		public_addr: None,
-		auth:        AuthMode::NoAuth,
-		skip_auth:   false,
-		allow_udp:   false,
-	};
-	let tuic_opts = TuicOutboundOpts {
-		auth:               (
-			Uuid::parse_str("c1e6dbe2-f417-4890-994c-9ee15b926597")?,
-			Arc::from(String::from("test_passwd").into_bytes()),
-		),
-		zero_rtt_handshake: false,
-		heartbeat:          Duration::from_secs(10),
-		gc_interval:        Duration::from_secs(20),
-		gc_lifetime:        Duration::from_secs(20),
-		skip_cert_verify:   true,
-		alpn:               vec![String::from("h3")],
-	};
+
+	// Handle init subcommand
+	if let Some(crate::cli::Commands::Init { format }) = &cli.command {
+		// Create a default configuration
+		let default_config = PersistentConfig::default();
+		
+		// Determine format and file name
+		let format_str = match format {
+			crate::cli::ConfigFormat::Yaml => "yaml",
+			crate::cli::ConfigFormat::Toml => "toml",
+		};
+		
+		// Determine the file path
+		let file_name = format!("config.{}", format_str);
+		let file_path = if let Some(config_dir) = &cli.config_dir {
+			// Ensure the directory exists
+			std::fs::create_dir_all(config_dir)?;
+			config_dir.join(&file_name)
+		} else {
+			std::path::PathBuf::from(&file_name)
+		};
+		
+		// Export the configuration
+		default_config.export_to_file(&file_path, format_str)?;
+		println!("Created default configuration at: {}", file_path.display());
+		return Ok(());
+	}
+	
+	#[cfg(debug_assertions)]
+	{
+		cli.config = Some("./config.yaml".to_string());
+	}
+	// Load configuration using the persistent config module
+	let persistent_config = PersistentConfig::load(cli.config, cli.config_dir)?;
+	info!(target: "[MAIN]", "Configuration loaded successfully");
+
+	// Convert to runtime config
+	let runtime_config = conf::runtime::Config::from_persist(persistent_config);
+
 	let ctx = Arc::new(AppContext {
 		tasks: TaskTracker::new(),
 		token: CancellationToken::new(),
 	});
-	let outbound = TuicOutbound::new(
-		ctx.clone(),
-		"127.0.0.1:9443".parse()?,
-		"localhost".to_string(),
-		tuic_opts,
-	)
-	.await?;
-	let inbound = Arc::new(SocksInbound::new(socks_opt, ctx.token.child_token()).await);
+
+	let outbound = TuicOutbound::new(ctx.clone(), runtime_config.tuic_opt).await?;
+	let inbound =
+		Arc::new(SocksInbound::new(runtime_config.socks_opt, ctx.token.child_token()).await);
 	let outbound = Arc::new(outbound);
 	let manager = Manager { inbound, outbound };
 	let manager = Arc::new(manager);

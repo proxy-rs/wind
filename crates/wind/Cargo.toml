@@ -26,3 +26,11 @@ const-str = "0.7"
 
 eyre = "*"
 uuid = "*"
+
+# Configuration
+figment = { version = "0.10", features = ["yaml", "env", "toml"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+toml = "0.8"
+educe = { version = "0.6", features = ["Default"] }
+humantime-serde = "1.1.1"

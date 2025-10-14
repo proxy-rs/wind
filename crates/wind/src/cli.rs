@@ -38,4 +38,17 @@ pub enum Commands {
 		#[arg(short, long)]
 		list: bool,
 	},
+
+	/// Initialize a new default configuration file
+	Init {
+		/// Specify the configuration file format (yaml or toml)
+		#[arg(short, long, value_enum, default_value = "yaml")]
+		format: ConfigFormat,
+	},
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum ConfigFormat {
+	Yaml,
+	Toml,
 }
