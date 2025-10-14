@@ -1,4 +1,3 @@
-use uuid::Uuid;
 use wind_socks::inbound::SocksInboundOpt;
 use wind_tuic::outbound::TuicOutboundOpts;
 

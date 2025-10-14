@@ -10,7 +10,6 @@ use figment::{
 	providers::{Env, Format, Toml, Yaml},
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use wind_core::types::TargetAddr;
 use wind_socks::inbound::AuthMode;
 

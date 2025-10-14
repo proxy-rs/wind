@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TargetAddr {
 	Domain(String, u16),
 	IPv4(Ipv4Addr, u16),
@@ -93,5 +93,84 @@ impl<'de> Deserialize<'de> for TargetAddr {
 			// Otherwise treat as domain
 			Ok(TargetAddr::Domain(parts[0].to_string(), port))
 		}
+	}
+}
+
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_display_ipv4() {
+		let addr = TargetAddr::IPv4("127.0.0.1".parse().unwrap(), 8080);
+		assert_eq!(addr.to_string(), "127.0.0.1:8080");
+	}
+
+	#[test]
+	fn test_display_ipv6() {
+		let addr = TargetAddr::IPv6("::1".parse().unwrap(), 8080);
+		assert_eq!(addr.to_string(), "[::1]:8080");
+	}
+
+	#[test]
+	fn test_display_domain() {
+		let addr = TargetAddr::Domain("example.com".to_string(), 443);
+		assert_eq!(addr.to_string(), "example.com:443");
+	}
+
+	#[test]
+	fn test_serialize_deserialize_ipv4() {
+		let addr = TargetAddr::IPv4("192.168.1.1".parse().unwrap(), 1234);
+		let serialized = serde_json::to_string(&addr).unwrap();
+		assert_eq!(serialized, "\"192.168.1.1:1234\"");
+		let deserialized: TargetAddr = serde_json::from_str(&serialized).unwrap();
+		assert_eq!(deserialized, addr);
+	}
+
+	#[test]
+	fn test_serialize_deserialize_ipv6() {
+		let addr = TargetAddr::IPv6("2001:db8::1".parse().unwrap(), 5678);
+		let serialized = serde_json::to_string(&addr).unwrap();
+		assert_eq!(serialized, "\"[2001:db8::1]:5678\"");
+		let deserialized: TargetAddr = serde_json::from_str(&serialized).unwrap();
+		assert_eq!(deserialized, addr);
+	}
+
+	#[test]
+	fn test_serialize_deserialize_domain() {
+		let addr = TargetAddr::Domain("test.org".to_string(), 80);
+		let serialized = serde_json::to_string(&addr).unwrap();
+		assert_eq!(serialized, "\"test.org:80\"");
+		let deserialized: TargetAddr = serde_json::from_str(&serialized).unwrap();
+		assert_eq!(deserialized, addr);
+	}
+
+	#[test]
+	fn test_deserialize_invalid_ipv6() {
+		let s = "[invalid]:1234";
+		let result: Result<TargetAddr, _> = serde_json::from_str(&format!("\"{}\"", s));
+		assert!(result.is_err());
+	}
+
+	#[test]
+	fn test_deserialize_invalid_port() {
+		let s = "127.0.0.1:notaport";
+		let result: Result<TargetAddr, _> = serde_json::from_str(&format!("\"{}\"", s));
+		assert!(result.is_err());
+	}
+
+	#[test]
+	fn test_deserialize_missing_bracket() {
+		let s = "[::1:8080";
+		let result: Result<TargetAddr, _> = serde_json::from_str(&format!("\"{}\"", s));
+		assert!(result.is_err());
+	}
+
+	#[test]
+	fn test_deserialize_invalid_format() {
+		let s = "justastring";
+		let result: Result<TargetAddr, _> = serde_json::from_str(&format!("\"{}\"", s));
+		assert!(result.is_err());
 	}
 }
