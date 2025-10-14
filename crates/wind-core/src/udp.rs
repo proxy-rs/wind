@@ -31,6 +31,8 @@ pub struct UdpPacket {
 // TODO impl quinn::AsyncUdpSocket for AbstractUdpSocket
 
 pub trait AbstractUdpSocket: Send + Sync {
+	/// Required methods
+
 	/// Creates a UDP socket I/O poller.
 	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;
 
@@ -44,15 +46,6 @@ pub trait AbstractUdpSocket: Send + Sync {
 		bufs: &mut [IoSliceMut<'_>],
 		meta: &mut [RecvMeta],
 	) -> Poll<IoResult<usize>>;
-
-	/// Receive a UDP datagram.
-	fn recv(
-		&self,
-		bufs: &mut [IoSliceMut<'_>],
-		meta: &mut [RecvMeta],
-	) -> impl Future<Output = IoResult<usize>> + Send {
-		poll_fn(|cx| self.poll_recv(cx, bufs, meta))
-	}
 
 	/// Returns the local socket address.
 	fn local_addr(&self) -> IoResult<SocketAddr>;
@@ -72,8 +65,20 @@ pub trait AbstractUdpSocket: Send + Sync {
 		true
 	}
 
+	/// Supplied methods
+
+	/// Receive a UDP datagram.
+	/// `meta` is the returned metadata for each buffer in `bufs`.
+	fn recv(
+		&self,
+		bufs: &mut [IoSliceMut<'_>],
+		meta: &mut [RecvMeta],
+	) -> impl Future<Output = IoResult<usize>> + Send {
+		poll_fn(|cx| self.poll_recv(cx, bufs, meta))
+	}
+
 	/// Sends data on the socket to the given address.
-	fn poll_send_to(
+	fn poll_send(
 		&self,
 		_cx: &mut Context<'_>,
 		buf: &[u8],
@@ -93,12 +98,12 @@ pub trait AbstractUdpSocket: Send + Sync {
 	}
 
 	/// Sends data on the socket to the given address.
-	fn send_to<'a>(
+	fn send<'a>(
 		&'a self,
 		buf: &'a [u8],
 		target: SocketAddr,
 	) -> impl Future<Output = IoResult<usize>> + Send + 'a {
-		poll_fn(move |cx| self.poll_send_to(cx, buf, target))
+		poll_fn(move |cx| self.poll_send(cx, buf, target))
 	}
 }
 

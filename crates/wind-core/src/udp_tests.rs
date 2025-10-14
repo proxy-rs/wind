@@ -3,11 +3,11 @@ mod tests {
 	use core::slice;
 	use std::{
 		io::IoSliceMut,
-		net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket},
+		net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddrV4, UdpSocket},
 	};
-	use rand::RngCore;
 
 	use quinn_udp::{RecvMeta, Transmit, UdpSocketState};
+	use rand::RngCore;
 	use socket2::Socket;
 
 	/// Generate a vector of random bytes with the specified length
@@ -17,8 +17,10 @@ mod tests {
 		data
 	}
 
-	// Test with different data sizes
-	fn test_with_data_size(data_len: usize) {
+
+	#[test]
+	fn basic() {
+		let data_len = 1024;
 		let send = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
 			.or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
 			.unwrap();
@@ -26,10 +28,10 @@ mod tests {
 			.or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
 			.unwrap();
 		let dst_addr = recv.local_addr().unwrap();
-		
+
 		// Generate random data for testing
 		let test_data = generate_random_data(data_len);
-		
+
 		test_send_recv(
 			&send.into(),
 			&recv.into(),
@@ -44,17 +46,110 @@ mod tests {
 	}
 
 	#[test]
-	fn basic() {
-		// Test with 1KB of data
-		test_with_data_size(1024);
+	#[cfg_attr(
+		not(any(target_os = "linux", target_os = "windows", target_os = "android")),
+		ignore
+	)]
+	fn gso() {
+		let send = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
+			.or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
+			.unwrap();
+		let recv = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
+			.or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
+			.unwrap();
+		let max_segments = UdpSocketState::new((&send).into())
+			.unwrap()
+			.max_gso_segments();
+		let dst_addr = recv.local_addr().unwrap();
+		const SEGMENT_SIZE: usize = 128;
+		let msg = vec![0xAB; SEGMENT_SIZE * max_segments];
+		test_send_recv(
+			&send.into(),
+			&recv.into(),
+			Transmit {
+				destination:  dst_addr,
+				ecn:          None,
+				contents:     &msg,
+				segment_size: Some(SEGMENT_SIZE),
+				src_ip:       None,
+			},
+		);
 	}
 
 	#[test]
-	fn large_payload() {
-		// Test with a larger payload (8KB)
-		test_with_data_size(8 * 1024);
-	}
+	fn socket_buffers() {
+		const BUFFER_SIZE: usize = 123456;
+		const FACTOR: usize = if cfg!(any(target_os = "linux", target_os = "android")) {
+			2 // Linux and Android set the buffer to double the requested size
+		} else {
+			1 // Everyone else is sane.
+		};
 
+		let send = socket2::Socket::new(
+			socket2::Domain::IPV4,
+			socket2::Type::DGRAM,
+			Some(socket2::Protocol::UDP),
+		)
+		.unwrap();
+		let recv = socket2::Socket::new(
+			socket2::Domain::IPV4,
+			socket2::Type::DGRAM,
+			Some(socket2::Protocol::UDP),
+		)
+		.unwrap();
+		for sock in [&send, &recv] {
+			sock.bind(&socket2::SockAddr::from(SocketAddrV4::new(
+				Ipv4Addr::LOCALHOST,
+				0,
+			)))
+			.unwrap();
+
+			let socket_state = UdpSocketState::new(sock.into()).expect("created socket state");
+
+			// Change the send buffer size.
+			let buffer_before = socket_state.send_buffer_size(sock.into()).unwrap();
+			assert_ne!(
+				buffer_before,
+				BUFFER_SIZE * FACTOR,
+				"make sure buffer is not already desired size"
+			);
+			socket_state
+				.set_send_buffer_size(sock.into(), BUFFER_SIZE)
+				.expect("set send buffer size {buffer_before} -> {BUFFER_SIZE}");
+			let buffer_after = socket_state.send_buffer_size(sock.into()).unwrap();
+			assert_eq!(
+				buffer_after,
+				BUFFER_SIZE * FACTOR,
+				"setting send buffer size to {BUFFER_SIZE} resulted in {buffer_before} -> \
+				 {buffer_after}",
+			);
+
+			// Change the receive buffer size.
+			let buffer_before = socket_state.recv_buffer_size(sock.into()).unwrap();
+			socket_state
+				.set_recv_buffer_size(sock.into(), BUFFER_SIZE)
+				.expect("set recv buffer size {buffer_before} -> {BUFFER_SIZE}");
+			let buffer_after = socket_state.recv_buffer_size(sock.into()).unwrap();
+			assert_eq!(
+				buffer_after,
+				BUFFER_SIZE * FACTOR,
+				"setting recv buffer size to {BUFFER_SIZE} resulted in {buffer_before} -> \
+				 {buffer_after}",
+			);
+		}
+
+		test_send_recv(
+			&send,
+			&recv,
+			Transmit {
+				destination:  recv.local_addr().unwrap().as_socket().unwrap(),
+				ecn:          None,
+				contents:     b"hello",
+				segment_size: None,
+				src_ip:       None,
+			},
+		);
+	}
 	fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit) {
 		let send_state = UdpSocketState::new(send.into()).unwrap();
 		let recv_state = UdpSocketState::new(recv.into()).unwrap();

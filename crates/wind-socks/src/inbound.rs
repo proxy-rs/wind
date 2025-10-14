@@ -6,7 +6,10 @@ use fast_socks5::{
 };
 use snafu::ResultExt;
 use tokio::net::{TcpListener, TcpStream};
-use wind_core::{AbstractInbound, InboundCallback, error, types::TargetAddr, udp::TokioUdpSocket};
+use tokio_util::sync::CancellationToken;
+use wind_core::{
+	AbstractInbound, InboundCallback, error, info, types::TargetAddr, udp::TokioUdpSocket,
+};
 
 use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu, convert_addr};
 
@@ -33,29 +36,39 @@ pub enum AuthMode {
 }
 
 pub struct SocksInbound {
-	opts: SocksInboundOpt,
+	opts:   SocksInboundOpt,
+	cancel: CancellationToken,
 }
 
 impl AbstractInbound for SocksInbound {
 	async fn listen(&self, cb: &impl InboundCallback) -> eyre::Result<()> {
 		let listener = TcpListener::bind(self.opts.listen_addr).await?;
 		loop {
-			match listener.accept().await {
-				Err(err) => error!(target:"[IN] REACTOR", "{:?}", err),
-				Ok((stream, client_addr)) => {
-					match self.handle_income(stream, client_addr, cb).await {
-						Ok(_) => {}
-						Err(err) => error!(target: "[IN] HANDLER" , "{:?}", err),
+			tokio::select! {
+				_ = self.cancel.cancelled() => {
+					info!(target: "[IN] REACTOR", "Cancellation received, shutting down");
+					break;
+				}
+				res = listener.accept() => {
+					match res {
+						Err(err) => error!(target:"[IN] REACTOR", "{:?}", err),
+						Ok((stream, client_addr)) => {
+							match self.handle_income(stream, client_addr, cb).await {
+								Ok(_) => {}
+								Err(err) => error!(target: "[IN] HANDLER" , "{:?}", err),
+							}
+						}
 					}
 				}
-			}
+			};
 		}
+		Ok(())
 	}
 }
 
 impl SocksInbound {
-	pub async fn new(opts: SocksInboundOpt) -> Self {
-		Self { opts }
+	pub async fn new(opts: SocksInboundOpt, cancel: CancellationToken) -> Self {
+		Self { opts, cancel }
 	}
 
 	async fn handle_income(

@@ -11,7 +11,7 @@ pub trait AbstractOutbound {
 	/// UDP traffic which needs handled by outbound
 	fn handle_udp(
 		&self,
-		socket: impl AbstractUdpSocket,
+		socket: impl AbstractUdpSocket + 'static,
 		via: Option<impl AbstractOutbound + Sized + Send>,
 	) -> impl Future<Output = eyre::Result<()>> + Send;
 }

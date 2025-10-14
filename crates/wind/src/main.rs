@@ -35,7 +35,7 @@ impl InboundCallback for Manager {
 		Ok(())
 	}
 
-	async fn handle_udpsocket(&self, socket: impl AbstractUdpSocket) -> eyre::Result<()> {
+	async fn handle_udpsocket(&self, socket: impl AbstractUdpSocket + 'static) -> eyre::Result<()> {
 		info!(target: "[UDP-IN] START","UDP association started");
 		self.outbound.handle_udp(socket, None::<Outbounds>).await?;
 		Ok(())
@@ -59,7 +59,7 @@ impl AbstractOutbound for Outbounds {
 
 	fn handle_udp(
 		&self,
-		socket: impl AbstractUdpSocket,
+		socket: impl AbstractUdpSocket + 'static,
 		via: Option<impl AbstractOutbound + Sized + Send>,
 	) -> impl Future<Output = eyre::Result<()>> + Send {
 		match &self {
@@ -118,7 +118,7 @@ async fn main() -> eyre::Result<()> {
 		tuic_opts,
 	)
 	.await?;
-	let inbound = Arc::new(SocksInbound::new(socks_opt).await);
+	let inbound = Arc::new(SocksInbound::new(socks_opt, ctx.token.child_token()).await);
 	let outbound = Arc::new(outbound);
 	let manager = Manager { inbound, outbound };
 	let manager = Arc::new(manager);
@@ -137,7 +137,9 @@ async fn main() -> eyre::Result<()> {
 	tokio::signal::ctrl_c().await?;
 	info!(target: "[MAIN]", "Ctrl-C received, shutting down");
 	ctx.token.cancel();
+	ctx.tasks.close();
 	tokio::time::timeout(Duration::from_secs(10), ctx.tasks.wait()).await?;
+
 	info!(target: "[MAIN]", "Shutdown complete");
 	Ok(())
 }

@@ -1,10 +1,12 @@
 use std::{
+	io::IoSliceMut,
 	net::{Ipv4Addr, SocketAddr},
 	sync::{Arc, atomic::AtomicU16},
 	time::Duration,
 };
 
-use quinn::TokioRuntime;
+use eyre::ensure;
+use quinn::{TokioRuntime, udp::RecvMeta};
 use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
@@ -55,7 +57,7 @@ impl TuicOutbound {
 				.install_default()
 				.unwrap();
 		}
-		info!(target: "[OUT]", "Creating a new TUIC outboud");
+		info!(target: "[OUT]", "Creating a new outboud");
 		let client_config = {
 			let tls_config = super::tls::tls_config(&server_name, &opts)?;
 
@@ -176,47 +178,36 @@ impl AbstractOutbound for TuicOutbound {
 
 	async fn handle_udp(
 		&self,
-		_socket: impl AbstractUdpSocket,
+		socket: impl AbstractUdpSocket + 'static,
 		_dialer: Option<impl AbstractOutbound>,
 	) -> eyre::Result<()> {
 		use std::sync::atomic::Ordering;
 		// Create a cancel token for single udp session
-		let _cancel = self.token.child_token();
+		let cancel = self.token.child_token();
 		// Generate a new UDP association ID
 		let assoc_id = self.udp_assoc_counter.fetch_add(1, Ordering::SeqCst);
 		info!(target: "[OUT]", "Creating new UDP association: {:#06x}", assoc_id);
-		// For now, we'll comment out this section since it needs further refactoring
-		// The issue is that AbstractUdpSocket's recv_from is not 'static, which
-		// complicates using it in a spawned task A proper solution would require
-		// changing the approach to UDP handling let (tx, _rx) =
-		// crossfire::spsc::bounded_async(16);
-		//
-		// let socket_arc = Arc::new(socket);
-		//
-		// self.ctx.tasks.spawn(async move {
-		//     let mut buf = [0u8; 65536]; // UDP max packet size
-		//
-		//     loop {
-		//         tokio::select! {
-		//             _ = cancel.cancelled() => break,
-		//             result = socket_arc.recv_from(&mut buf) => {
-		//                 match result {
-		//                     Ok((len, _addr)) => {
-		//                         let udp_pkt = buf[..len].to_vec();
-		//                         if let Err(err) = tx.send(udp_pkt).await {
-		//                             warn!(target: "[OUT]", "Failed to forward UDP
-		// packet to TUIC UDP stream: {}", err);                             break;
-		//                         }
-		//                     },
-		//                     Err(err) => {
-		//                         warn!(target: "[OUT]", "Failed to receive UDP packet:
-		// {}", err);                         break;
-		//                     }
-		//                 }
-		//             }
-		//         }
-		//     }
-		// });
+
+		let socket = Arc::new(socket);
+		self.ctx.tasks.spawn(async move {
+			let mut buf = [0; u16::MAX as usize];
+			let mut meta = RecvMeta::default();
+			let result = socket
+				.recv(
+					&mut [IoSliceMut::new(&mut buf)],
+					std::slice::from_mut(&mut meta),
+				)
+				.await?;
+			ensure!(result == 1, "Expected to receive 1 datagram, got {}", result);
+			let segments = meta.len / meta.stride;
+			loop {
+				tokio::select! {
+					_ = cancel.cancelled() => break,
+
+				}
+			}
+			eyre::Ok(())
+		});
 		// let mut udp_stream =
 		// 	UdpStream::new(self.connection.clone(), assoc_id, socket.recv()).await?;
 		let cancel = self.ctx.token.clone();
