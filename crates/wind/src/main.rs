@@ -10,6 +10,9 @@ use wind_core::{
 use wind_socks::inbound::SocksInbound;
 use wind_tuic::outbound::TuicOutbound;
 
+// Testing module providing SOCKS5 proxy testing functionality
+pub mod tests;
+
 
 mod util;
 use crate::{cli::Cli, conf::persistent::PersistentConfig};
@@ -73,7 +76,7 @@ impl AbstractOutbound for Outbounds {
 async fn main() -> eyre::Result<()> {
 	log::init_log(Level::TRACE)?;
 	info!(target: "[MAIN]", "Wind starting");
-	let mut cli = match Cli::try_parse() {
+	let cli = match Cli::try_parse() {
 		Ok(v) => v,
 		Err(err) => {
 			println!("{:#}", err);
@@ -91,36 +94,37 @@ async fn main() -> eyre::Result<()> {
 	}
 
 	// Handle init subcommand
-	if let Some(crate::cli::Commands::Init { format }) = &cli.command {
-		// Create a default configuration
-		let default_config = PersistentConfig::default();
+	match &cli.command {
+		Some(crate::cli::Commands::Init { format }) => {
+			// Create a default configuration
+			let default_config = PersistentConfig::default();
 
-		// Determine format and file name
-		let format_str = match format {
-			crate::cli::ConfigFormat::Yaml => "yaml",
-			crate::cli::ConfigFormat::Toml => "toml",
-		};
+			// Determine format and file name
+			let format_str = match format {
+				crate::cli::ConfigFormat::Yaml => "yaml",
+				crate::cli::ConfigFormat::Toml => "toml",
+			};
 
-		// Determine the file path
-		let file_name = format!("config.{}", format_str);
-		let file_path = if let Some(config_dir) = &cli.config_dir {
-			// Ensure the directory exists
-			std::fs::create_dir_all(config_dir)?;
-			config_dir.join(&file_name)
-		} else {
-			std::path::PathBuf::from(&file_name)
-		};
+			// Determine the file path
+			let file_name = format!("config.{}", format_str);
+			let file_path = if let Some(config_dir) = &cli.config_dir {
+				// Ensure the directory exists
+				std::fs::create_dir_all(config_dir)?;
+				config_dir.join(&file_name)
+			} else {
+				std::path::PathBuf::from(&file_name)
+			};
 
-		// Export the configuration
-		default_config.export_to_file(&file_path, format_str)?;
-		println!("Created default configuration at: {}", file_path.display());
-		return Ok(());
+			// Export the configuration
+			default_config.export_to_file(&file_path, format_str)?;
+			println!("Created default configuration at: {}", file_path.display());
+			return Ok(());
+		}
+		None => {
+			// 继续正常启动
+		}
 	}
 
-	#[cfg(debug_assertions)]
-	{
-		cli.config = Some("./config.yaml".to_string());
-	}
 	// Load configuration using the persistent config module
 	let persistent_config = PersistentConfig::load(cli.config, cli.config_dir)?;
 	info!(target: "[MAIN]", "Configuration loaded successfully");

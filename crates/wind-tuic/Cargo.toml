@@ -47,6 +47,8 @@ enum_dispatch = "*"
 secrecy = "0.10"
 pin-project = "1"
 moka = { version = "0.12", features = ["future"] }
+portable-atomic = { version = "1" }
+once_cell = { version = "1" }
 
 # TLS
 tokio-rustls = { version = "*", default-features = false, features = ["logging"] }

@@ -32,13 +32,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-	/// does testing things
-	Test {
-		/// lists test values
-		#[arg(short, long)]
-		list: bool,
-	},
-
 	/// Initialize a new default configuration file
 	Init {
 		/// Specify the configuration file format (yaml or toml)

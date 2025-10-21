@@ -51,11 +51,11 @@ impl AbstractInbound for SocksInbound {
 				}
 				res = listener.accept() => {
 					match res {
-						Err(err) => error!(target:"[IN] REACTOR", "{:?}", err),
+						Err(err) => error!(target:"[IN] REACTOR", "{:}", err),
 						Ok((stream, client_addr)) => {
 							match self.handle_income(stream, client_addr, cb).await {
 								Ok(_) => {}
-								Err(err) => error!(target: "[IN] HANDLER" , "{:?}", err),
+								Err(err) => error!(target: "[IN] HANDLER" , "{:}", err),
 							}
 						}
 					}
@@ -113,7 +113,7 @@ impl SocksInbound {
 					.context(CallbackSnafu)?;
 			}
 			Socks5Command::UDPAssociate if self.opts.allow_udp => {
-				let reply_ip = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+				let reply_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 				crate::ext::run_udp_proxy(
 					proto,
 					&target_addr,

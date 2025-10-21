@@ -12,8 +12,11 @@ wind-socks = { path = "../wind-socks"}
 wind-tuic = { path = "../wind-tuic"}
 
 # Async
-tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "net"] }
 tokio-util = { version = "*", features = ["rt"] }
+
+# SOCKS5 client library for proxy testing
+fast-socks5 = "1.0.0-rc.0"
 
 tracing = "*"
 

@@ -35,7 +35,7 @@ pub struct SocksOpt {
 	#[educe(Default = false)]
 	pub skip_auth: bool,
 
-	#[educe(Default = false)]
+	#[educe(Default = true)]
 	pub allow_udp: bool,
 }
 
