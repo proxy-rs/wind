@@ -1,6 +1,6 @@
 mod header;
 
-use bytes::BytesMut;
+use bytes::{Buf, BufMut, BytesMut};
 pub use header::*;
 
 mod cmd;
@@ -81,9 +81,8 @@ impl ClientProtoExt for quinn::Connection {
 		pkt_id: u16,
 		addr: &TargetAddr,
 		payload: bytes::Bytes,
-		_datagram: bool,
+		datagram: bool,
 	) -> Result<(), Error> {
-		let mut send = self.open_uni().await?;
 		let mut buf = BytesMut::with_capacity(12);
 		HeaderCodec.encode(Header::new(CmdType::Packet), &mut buf)?;
 		CmdCodec(CmdType::Packet).encode(
@@ -97,8 +96,14 @@ impl ClientProtoExt for quinn::Connection {
 			&mut buf,
 		)?;
 		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
-
-		send.write_all_chunks(&mut [buf.into(), payload]).await?;
+		if datagram {
+			let mut combined = buf.freeze().chain(payload);
+			self.send_datagram(combined.copy_to_bytes(combined.remaining()))
+				.context(SendDatagramSnafu)?;
+		} else {
+			let mut send = self.open_uni().await?;
+			send.write_all_chunks(&mut [buf.into(), payload]).await?;
+		}
 		Ok(())
 	}
 

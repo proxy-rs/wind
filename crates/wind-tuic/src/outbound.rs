@@ -294,6 +294,8 @@ impl AbstractOutbound for TuicOutbound {
 		let cancel_stream = cancel.clone();
 		let socket_clone = socket.clone();
 
+		let mut gc_interval = tokio::time::interval(self.opts.gc_interval);
+		gc_interval.tick().await;
 		self.ctx.tasks.spawn(async move {
 			loop {
 				tokio::select! {
@@ -344,6 +346,10 @@ impl AbstractOutbound for TuicOutbound {
 								break;
 							}
 						}
+					}
+					_ = gc_interval.tick() => {
+						// Perform garbage collection of expired fragments
+						udp_stream.collect_garbage().await;
 					}
 				}
 			}

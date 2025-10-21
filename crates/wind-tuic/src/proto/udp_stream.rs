@@ -1,6 +1,5 @@
 use std::{
 	cell::LazyCell,
-	net::SocketAddr,
 	sync::{
 		Arc,
 		atomic::{AtomicU16, AtomicU64, Ordering},
@@ -100,7 +99,7 @@ impl FragmentReassemblyBuffer {
 	}
 
 	/// Clean up expired fragments
-	fn cleanup_expired(&mut self) {
+	fn cleanup_expired(&self) {
 		let _ = self.fragments.invalidate_entries_if(move |_, meta| {
 			INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
 				>= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
@@ -282,6 +281,10 @@ impl UdpStream {
 			.send(packet)
 			.await
 			.map_err(|e| eyre::eyre!("Failed to send packet to receive channel: {:?}", e))
+	}
+
+	pub async fn collect_garbage(&self) {
+		self.fragment_buffer.cleanup_expired();
 	}
 
 	pub async fn close(&mut self) -> Result<(), Error> {
