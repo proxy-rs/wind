@@ -12,7 +12,13 @@ use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use wind_core::{AbstractOutbound, AppContext, info, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket, warn};
+use wind_core::{
+	AbstractOutbound, AppContext, info,
+	tcp::AbstractTcpStream,
+	types::TargetAddr,
+	udp::{AbstractUdpSocket, UdpPacket},
+	warn,
+};
 
 use crate::{
 	BindSocketSnafu, Error, QuicConnectSnafu,
@@ -281,7 +287,7 @@ impl AbstractOutbound for TuicOutbound {
 
 		let socket = Arc::new(socket);
 		let connection = self.connection.clone();
-		let (send_tx, send_rx) = crossfire::mpmc::bounded_async(128);
+		let (send_tx, send_rx) = crossfire::mpmc::bounded_async::<UdpPacket>(128);
 		let (receive_tx, receive_rx) = crossfire::mpmc::bounded_async(128);
 		let udp_stream = Arc::new(UdpStream::new(connection.clone(), assoc_id, receive_tx));
 		self.udp_session.insert(assoc_id, udp_stream.clone()).await;
@@ -321,15 +327,16 @@ impl AbstractOutbound for TuicOutbound {
 							}
 						}
 					}
-
+					// send queue
 					packet = send_rx.recv() => {
 						match packet {
 							Ok(packet) => {
 								// Send packet to remote via UDP stream
+								let payload_len = packet.payload.len();
 								if let Err(e) = udp_stream.send_packet(packet).await {
 									warn!(target: "[OUT]", "Failed to send UDP packet to remote (assoc {:#06x}): {}", assoc_id, e);
 								} else {
-									info!(target: "[OUT]", "Sent UDP packet to remote ({} bytes, assoc {:#06x})", packet.payload.len(), assoc_id);
+									info!(target: "[OUT]", "Sent UDP packet to remote ({} bytes, assoc {:#06x})", payload_len, assoc_id);
 								}
 							}
 							Err(e) => {

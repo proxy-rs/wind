@@ -1,5 +1,6 @@
 use std::{
 	cell::LazyCell,
+	net::SocketAddr,
 	sync::{
 		Arc,
 		atomic::{AtomicU16, AtomicU64, Ordering},
@@ -8,9 +9,8 @@ use std::{
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
-use crossfire::{MAsyncRx, MAsyncTx};
+use crossfire::MAsyncTx;
 use moka::future::Cache;
-use tokio::time::timeout;
 use tokio_util::codec::Encoder;
 use wind_core::{types::TargetAddr, udp::UdpPacket};
 
@@ -88,7 +88,7 @@ impl FragmentReassemblyBuffer {
 			.store(INIT_TIME.elapsed().as_secs(), Ordering::Relaxed);
 
 		// Store this fragment
-		meta.value().fragments.insert(frag_id, payload);
+		meta.value().fragments.insert(frag_id, payload).await;
 
 		// Check if all fragments have been received
 		if meta.value().fragments.entry_count() == meta.value().frag_total.into() {
@@ -101,7 +101,7 @@ impl FragmentReassemblyBuffer {
 
 	/// Clean up expired fragments
 	fn cleanup_expired(&mut self) {
-		self.fragments.invalidate_entries_if(move |_, meta| {
+		let _ = self.fragments.invalidate_entries_if(move |_, meta| {
 			INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
 				>= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
 		});
@@ -149,7 +149,7 @@ impl UdpStream {
 			connection,
 			assoc_id,
 			receive_tx,
-			next_pkt_id: 0,
+			next_pkt_id: AtomicU16::new(0),
 			fragment_buffer: FragmentReassemblyBuffer::new(),
 		}
 	}
@@ -177,11 +177,17 @@ impl UdpStream {
 		if payload_len <= self.connection.max_datagram_size().unwrap_or(1200) - header_overhead {
 			// Send UDP data with association ID
 			self.connection
-				.send_udp(self.assoc_id, self.next_pkt_id, &packet.target, packet.payload, true)
+				.send_udp(
+					self.assoc_id,
+					self.next_pkt_id.load(Ordering::Relaxed),
+					&packet.target,
+					packet.payload,
+					true,
+				)
 				.await?;
 
 			// Increment packet ID for next packet
-			self.next_pkt_id += 1;
+			self.next_pkt_id.fetch_add(1, Ordering::Relaxed);
 			return Ok(());
 		}
 
@@ -189,7 +195,7 @@ impl UdpStream {
 		self.send_fragmented_packet(packet).await
 	}
 
-	async fn send_fragmented_packet(&mut self, packet: UdpPacket) -> eyre::Result<()> {
+	async fn send_fragmented_packet(&self, packet: UdpPacket) -> eyre::Result<()> {
 		let payload_len = packet.payload.len();
 
 		// Calculate address size for proper fragment size calculation
@@ -214,8 +220,7 @@ impl UdpStream {
 		}
 
 		// Assign a packet ID for all fragments in this packet
-		let pkt_id = self.next_pkt_id;
-		self.next_pkt_id = self.next_pkt_id.wrapping_add(1);
+		let pkt_id = self.next_pkt_id.fetch_add(1, Ordering::Relaxed);
 		let frag_total = fragment_count as u8;
 
 		// Fragment and send each piece
@@ -251,21 +256,6 @@ impl UdpStream {
 		}
 
 		Ok(())
-	}
-
-	pub async fn handle_send_queue(&mut self) -> eyre::Result<()> {
-		loop {
-			match timeout(Duration::from_secs(5), self.send_rx.recv()).await {
-				Ok(result) => {
-					let packet = result?;
-					self.send_packet(packet).await?;
-				}
-				Err(_) => {
-					// Timeout - clean up expired fragments
-					self.fragment_buffer.cleanup_expired();
-				}
-			}
-		}
 	}
 
 	/// Process an incoming packet fragment
