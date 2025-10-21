@@ -12,10 +12,7 @@ use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use wind_core::{
-	AbstractOutbound, AppContext, info, tcp::AbstractTcpStream, types::TargetAddr,
-	udp::AbstractUdpSocket, warn,
-};
+use wind_core::{AbstractOutbound, AppContext, info, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket, warn};
 
 use crate::{
 	BindSocketSnafu, Error, QuicConnectSnafu,
@@ -55,13 +52,9 @@ impl TuicOutbound {
 		// TODO move to top-level initialization
 		{
 			#[cfg(feature = "aws-lc-rs")]
-			rustls::crypto::aws_lc_rs::default_provider()
-				.install_default()
-				.unwrap();
+			rustls::crypto::aws_lc_rs::default_provider().install_default().unwrap();
 			#[cfg(feature = "ring")]
-			rustls::crypto::ring::default_provider()
-				.install_default()
-				.unwrap();
+			rustls::crypto::ring::default_provider().install_default().unwrap();
 		}
 		info!(target: "[OUT]", "Creating a new outboud");
 		let client_config = {
@@ -84,12 +77,7 @@ impl TuicOutbound {
 			.context(BindSocketSnafu { socket_addr })?
 			.into_std()?;
 
-		let mut endpoint = quinn::Endpoint::new(
-			quinn::EndpointConfig::default(),
-			None,
-			socket,
-			Arc::new(TokioRuntime),
-		)?;
+		let mut endpoint = quinn::Endpoint::new(quinn::EndpointConfig::default(), None, socket, Arc::new(TokioRuntime))?;
 		endpoint.set_default_client_config(client_config);
 		let connection = endpoint
 			.connect(peer_addr, &server_name)
@@ -159,9 +147,9 @@ impl TuicOutbound {
 						// Process the received datagram
 						use bytes::Buf;
 						use tokio_util::codec::Decoder;
-						
+
 						let mut buf = bytes::BytesMut::from(bytes.as_ref());
-						
+
 						// Parse header
 						let header = match crate::proto::HeaderCodec.decode(&mut buf) {
 							Ok(Some(h)) => h,
@@ -174,7 +162,7 @@ impl TuicOutbound {
 								continue;
 							}
 						};
-						
+
 						// Parse command based on header type
 						let cmd = match crate::proto::CmdCodec(header.command).decode(&mut buf) {
 							Ok(Some(c)) => c,
@@ -187,7 +175,7 @@ impl TuicOutbound {
 								continue;
 							}
 						};
-						
+
 						// Process UDP packet
 						if let crate::proto::Command::Packet {
 							assoc_id,
@@ -208,7 +196,7 @@ impl TuicOutbound {
 									continue;
 								}
 							};
-							
+
 							// Convert address to TargetAddr
 							let target = match addr {
 								crate::proto::Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
@@ -219,20 +207,20 @@ impl TuicOutbound {
 									continue;
 								}
 							};
-							
+
 							// Extract payload
 							let payload = buf.copy_to_bytes(size as usize);
-							
+
 							info!(target: "[OUT]", "Received UDP packet: assoc={:#06x}, pkt={}, frag={}/{}, size={}, target={}",
 								assoc_id, pkt_id, frag_id + 1, frag_total, size, target);
-							
+
 							// Find the corresponding UDP session
 							if let Some(udp_stream) = udp_session.get(&assoc_id).await {
 								// Use process_fragment to handle fragmented packets
 								// This will return Some(packet) when all fragments are received and reassembled
 								let complete_packet = if frag_total > 1 {
 									// Fragmented packet - use process_fragment for reassembly
-									udp_stream.process_fragment(assoc_id, pkt_id, frag_total, frag_id, payload, target)
+									udp_stream.process_fragment(assoc_id, pkt_id, frag_total, frag_id, payload, target).await
 								} else {
 									// Single packet (no fragmentation)
 									Some(wind_core::udp::UdpPacket {
@@ -240,7 +228,7 @@ impl TuicOutbound {
 										payload,
 									})
 								};
-								
+
 								// If we have a complete packet, send it to the receive channel
 								if let Some(packet) = complete_packet {
 									if let Err(e) = udp_stream.receive_packet(packet).await {
@@ -295,13 +283,8 @@ impl AbstractOutbound for TuicOutbound {
 		let connection = self.connection.clone();
 		let (send_tx, send_rx) = crossfire::mpmc::bounded_async(128);
 		let (receive_tx, receive_rx) = crossfire::mpmc::bounded_async(128);
-		let udp_stream = Arc::new(UdpStream::new(
-			connection.clone(),
-			assoc_id,
-			send_rx,
-			receive_tx,
-		));
-		self.udp_session.insert(assoc_id, udp_stream).await;
+		let udp_stream = Arc::new(UdpStream::new(connection.clone(), assoc_id, receive_tx));
+		self.udp_session.insert(assoc_id, udp_stream.clone()).await;
 		let cancel_stream = cancel.clone();
 		let socket_clone = socket.clone();
 
@@ -338,13 +321,30 @@ impl AbstractOutbound for TuicOutbound {
 							}
 						}
 					}
+
+					packet = send_rx.recv() => {
+						match packet {
+							Ok(packet) => {
+								// Send packet to remote via UDP stream
+								if let Err(e) = udp_stream.send_packet(packet).await {
+									warn!(target: "[OUT]", "Failed to send UDP packet to remote (assoc {:#06x}): {}", assoc_id, e);
+								} else {
+									info!(target: "[OUT]", "Sent UDP packet to remote ({} bytes, assoc {:#06x})", packet.payload.len(), assoc_id);
+								}
+							}
+							Err(e) => {
+								warn!(target: "[OUT]", "Error receiving packet from channel for association {:#06x}: {}", assoc_id, e);
+								break;
+							}
+						}
+					}
 				}
 			}
 			eyre::Ok(())
 		});
 
 		// Spawn task to continuously read from local socket and send to remote
-		self.ctx.tasks.spawn(async move { 
+		self.ctx.tasks.spawn(async move {
 			let mut buf = vec![0u8; u16::MAX as usize];
 
 			loop {

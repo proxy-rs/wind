@@ -1,5 +1,10 @@
 use std::{
-	cell::LazyCell, sync::{Arc, atomic::{AtomicU64, Ordering}}, time::{Duration, Instant}
+	cell::LazyCell,
+	sync::{
+		Arc,
+		atomic::{AtomicU16, AtomicU64, Ordering},
+	},
+	time::{Duration, Instant},
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -18,14 +23,13 @@ use crate::{
 const MAX_FRAGMENTS: u8 = 255; // Maximum number of fragments allowed
 const FRAGMENT_TIMEOUT_MS: u64 = 30000; // 30 seconds timeout for fragment reassembly
 
-const INIT_TIME : LazyCell<Instant> = LazyCell::new(|| Instant::now());
+const INIT_TIME: LazyCell<Instant> = LazyCell::new(|| Instant::now());
 
 pub struct UdpStream {
 	connection:      quinn::Connection,
 	assoc_id:        u16,
-	send_rx:         MAsyncRx<UdpPacket>,
 	receive_tx:      MAsyncTx<UdpPacket>,
-	next_pkt_id:     u16, // Track packet IDs for fragmentation
+	next_pkt_id:     AtomicU16, // Track packet IDs for fragmentation
 	// Fragment reassembly state (wrapped in Mutex for interior mutability)
 	fragment_buffer: FragmentReassemblyBuffer,
 }
@@ -79,7 +83,9 @@ impl FragmentReassemblyBuffer {
 
 		// Update timestamp
 
-		meta.value().last_updated.store(INIT_TIME.elapsed().as_secs(), Ordering::Relaxed);
+		meta.value()
+			.last_updated
+			.store(INIT_TIME.elapsed().as_secs(), Ordering::Relaxed);
 
 		// Store this fragment
 		meta.value().fragments.insert(frag_id, payload);
@@ -95,11 +101,10 @@ impl FragmentReassemblyBuffer {
 
 	/// Clean up expired fragments
 	fn cleanup_expired(&mut self) {
-
 		self.fragments.invalidate_entries_if(move |_, meta| {
-			INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed)) >= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
+			INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
+				>= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
 		});
-
 	}
 
 	/// Reassemble a complete packet from fragments
@@ -139,27 +144,21 @@ impl FragmentReassemblyBuffer {
 }
 
 impl UdpStream {
-	pub fn new(
-		connection: quinn::Connection,
-		assoc_id: u16,
-		send_rx: MAsyncRx<UdpPacket>,
-		receive_tx: MAsyncTx<UdpPacket>,
-	) -> Self {
+	pub fn new(connection: quinn::Connection, assoc_id: u16, receive_tx: MAsyncTx<UdpPacket>) -> Self {
 		Self {
 			connection,
 			assoc_id,
-			send_rx,
 			receive_tx,
 			next_pkt_id: 0,
 			fragment_buffer: FragmentReassemblyBuffer::new(),
 		}
 	}
 
-	pub async fn send_packet(&mut self, packet: UdpPacket) -> eyre::Result<()> {
+	pub async fn send_packet(&self, packet: UdpPacket) -> eyre::Result<()> {
 		let payload_len = packet.payload.len();
 
 		let addr_size = match packet.target {
-			TargetAddr::IPv4(..) => 1 + 4 + 2, // Type (1) + IPv4 (4) + Port (2)
+			TargetAddr::IPv4(..) => 1 + 4 + 2,  // Type (1) + IPv4 (4) + Port (2)
 			TargetAddr::IPv6(..) => 1 + 16 + 2, // Type (1) + IPv6 (16) + Port (2)
 			TargetAddr::Domain(ref domain, _) => {
 				let domain_len = domain.len();
@@ -178,13 +177,7 @@ impl UdpStream {
 		if payload_len <= self.connection.max_datagram_size().unwrap_or(1200) - header_overhead {
 			// Send UDP data with association ID
 			self.connection
-				.send_udp(
-					self.assoc_id,
-					self.next_pkt_id,
-					&packet.target,
-					packet.payload,
-					true,
-				)
+				.send_udp(self.assoc_id, self.next_pkt_id, &packet.target, packet.payload, true)
 				.await?;
 
 			// Increment packet ID for next packet
@@ -254,8 +247,7 @@ impl UdpStream {
 			AddressCodec.encode(packet.target.to_owned().into(), &mut buf)?;
 
 			// Write header and payload
-			send.write_all_chunks(&mut [buf.into(), fragment_payload])
-				.await?;
+			send.write_all_chunks(&mut [buf.into(), fragment_payload]).await?;
 		}
 
 		Ok(())
@@ -289,7 +281,8 @@ impl UdpStream {
 	) -> Option<UdpPacket> {
 		// Add fragment to reassembly buffer and check if packet is complete
 		self.fragment_buffer
-			.add_fragment(assoc_id, pkt_id, frag_total, frag_id, payload, target).await
+			.add_fragment(assoc_id, pkt_id, frag_total, frag_id, payload, target)
+			.await
 	}
 
 	/// Receive a complete packet from remote server
@@ -317,10 +310,10 @@ mod tests {
 	/// (Address Type Registry) and Section 6.3 (Address Type Specifications)
 	fn calculate_addr_size(target: &TargetAddr) -> usize {
 		match target {
-			TargetAddr::IPv4(..) => 1 + 4 + 2, // Type (1) + IPv4 (4) + Port (2) = 7 bytes
+			TargetAddr::IPv4(..) => 1 + 4 + 2,  // Type (1) + IPv4 (4) + Port (2) = 7 bytes
 			TargetAddr::IPv6(..) => 1 + 16 + 2, // Type (1) + IPv6 (16) + Port (2) = 19 bytes
 			TargetAddr::Domain(domain, _) => 1 + 1 + domain.len() + 2, /* Type (1) + Len (1) +
-			                                     * Domain + Port (2) */
+			                                      * Domain + Port (2) */
 		}
 	}
 
@@ -341,17 +334,11 @@ mod tests {
 		// According to SPEC.md Section 8.2, packet command header (without ADDR) is 10
 		// bytes
 		const PACKET_CMD_SIZE: usize = 2 + 2 + 1 + 1 + 2; // ASSOC_ID + PKT_ID + FRAG_TOTAL + FRAG_ID + SIZE
-		assert_eq!(
-			PACKET_CMD_SIZE, 8,
-			"Packet command fields should be 8 bytes"
-		);
+		assert_eq!(PACKET_CMD_SIZE, 8, "Packet command fields should be 8 bytes");
 
 		// Total with base header
 		const TOTAL_PACKET_HEADER: usize = 2 + 8; // VER + TYPE + packet fields
-		assert_eq!(
-			TOTAL_PACKET_HEADER, 10,
-			"Total packet header should be 10 bytes"
-		);
+		assert_eq!(TOTAL_PACKET_HEADER, 10, "Total packet header should be 10 bytes");
 	}
 
 	/// SPEC.md Section 6.3: Address Type Specifications - IPv4
@@ -455,8 +442,7 @@ mod tests {
 		let total = 2 + 8 + addr_size;
 		assert_eq!(
 			total, 25,
-			"Total header overhead for 'example.com' should be 25 bytes according to SPEC.md \
-			 Section 8.4"
+			"Total header overhead for 'example.com' should be 25 bytes according to SPEC.md Section 8.4"
 		);
 	}
 
@@ -502,8 +488,7 @@ mod tests {
 		let domain_max_payload = MAX_DATAGRAM_SIZE - domain_overhead;
 		assert_eq!(
 			domain_max_payload, 1175,
-			"Domain 'example.com' max payload should be 1175 bytes with 1200 MTU (SPEC.md Section \
-			 8.5)"
+			"Domain 'example.com' max payload should be 1175 bytes with 1200 MTU (SPEC.md Section 8.5)"
 		);
 	}
 
@@ -551,10 +536,7 @@ mod tests {
 		let fragment_count = (max_payload + max_fragment_size - 1) / max_fragment_size;
 
 		assert_eq!(fragment_count, 255, "Should be able to send 255 fragments");
-		assert!(
-			fragment_count <= MAX_FRAGMENTS as usize,
-			"Fragment count must not exceed 255"
-		);
+		assert!(fragment_count <= MAX_FRAGMENTS as usize, "Fragment count must not exceed 255");
 
 		// One byte over should exceed limit
 		let oversized_payload = max_payload + 1;
@@ -575,10 +557,7 @@ mod tests {
 		// Single fragment packet
 		let result = buffer.add_fragment(1, 100, 1, 0, payload.clone(), target.clone()).await;
 
-		assert!(
-			result.is_some(),
-			"Single fragment should complete immediately"
-		);
+		assert!(result.is_some(), "Single fragment should complete immediately");
 		let packet = result.unwrap();
 		assert_eq!(packet.payload, payload);
 	}
@@ -594,10 +573,7 @@ mod tests {
 
 		// Add first fragment
 		let result1 = buffer.add_fragment(1, 200, 2, 0, frag1.clone(), target.clone()).await;
-		assert!(
-			result1.is_none(),
-			"First fragment should not complete packet"
-		);
+		assert!(result1.is_none(), "First fragment should not complete packet");
 
 		// Add second fragment - should complete
 		let result2 = buffer.add_fragment(1, 200, 2, 1, frag2.clone(), target.clone()).await;
@@ -667,34 +643,28 @@ mod tests {
 
 		// Add incomplete fragment
 		buffer.add_fragment(1, 400, 2, 0, Bytes::from("test"), target.clone()).await;
-		assert_eq!(
-			buffer.fragments.entry_count(),
-			1,
-			"Should have one incomplete packet"
-		);
+		assert_eq!(buffer.fragments.entry_count(), 1, "Should have one incomplete packet");
 
 		// Get the metadata and manually set timestamp to simulate expiration
 		if let Some(meta) = buffer.fragments.get(&(1, 400)).await {
-			meta.last_updated.store(
-				(INIT_TIME.elapsed() - Duration::from_secs(35)).as_secs(),
-				Ordering::Relaxed
-			);
+			meta.last_updated
+				.store((INIT_TIME.elapsed() - Duration::from_secs(35)).as_secs(), Ordering::Relaxed);
 		}
 
 		// Cleanup should remove expired fragments
 		buffer.fragments.run_pending_tasks().await;
-		buffer.fragments.invalidate_entries_if(move |_, meta| {
-			INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed)) >= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
-		}).expect("Failed to invalidate entries");
-		
+		buffer
+			.fragments
+			.invalidate_entries_if(move |_, meta| {
+				INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
+					>= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
+			})
+			.expect("Failed to invalidate entries");
+
 		// Wait for invalidation to complete
 		buffer.fragments.run_pending_tasks().await;
-		
-		assert_eq!(
-			buffer.fragments.entry_count(),
-			0,
-			"Expired fragments should be cleaned up"
-		);
+
+		assert_eq!(buffer.fragments.entry_count(), 0, "Expired fragments should be cleaned up");
 	}
 
 	/// Verify saturating_sub prevents underflow as mentioned in SPEC.md Section

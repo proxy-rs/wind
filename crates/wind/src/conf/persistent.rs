@@ -54,9 +54,7 @@ impl From<AuthModeConfig> for AuthMode {
 	fn from(config: AuthModeConfig) -> Self {
 		match config {
 			AuthModeConfig::NoAuth => AuthMode::NoAuth,
-			AuthModeConfig::Password { username, password } => {
-				AuthMode::Password { username, password }
-			}
+			AuthModeConfig::Password { username, password } => AuthMode::Password { username, password },
 		}
 	}
 }

@@ -4,8 +4,8 @@ use clap::Parser as _;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::Level;
 use wind_core::{
-	AbstractOutbound, AppContext, InboundCallback, inbound::AbstractInbound, info,
-	tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
+	AbstractOutbound, AppContext, InboundCallback, inbound::AbstractInbound, info, tcp::AbstractTcpStream, types::TargetAddr,
+	udp::AbstractUdpSocket,
 };
 use wind_socks::inbound::SocksInbound;
 use wind_tuic::outbound::TuicOutbound;
@@ -27,15 +27,9 @@ struct Manager {
 }
 
 impl InboundCallback for Manager {
-	async fn handle_tcpstream(
-		&self,
-		target_addr: TargetAddr,
-		stream: impl AbstractTcpStream,
-	) -> eyre::Result<()> {
+	async fn handle_tcpstream(&self, target_addr: TargetAddr, stream: impl AbstractTcpStream) -> eyre::Result<()> {
 		info!(target: "[TCP-IN] START","target address {target_addr}");
-		self.outbound
-			.handle_tcp(target_addr, stream, None::<Outbounds>)
-			.await?;
+		self.outbound.handle_tcp(target_addr, stream, None::<Outbounds>).await?;
 		Ok(())
 	}
 
@@ -138,8 +132,7 @@ async fn main() -> eyre::Result<()> {
 	});
 
 	let outbound = TuicOutbound::new(ctx.clone(), runtime_config.tuic_opt).await?;
-	let inbound =
-		Arc::new(SocksInbound::new(runtime_config.socks_opt, ctx.token.child_token()).await);
+	let inbound = Arc::new(SocksInbound::new(runtime_config.socks_opt, ctx.token.child_token()).await);
 	let outbound = Arc::new(outbound);
 	let manager = Manager { inbound, outbound };
 	let manager = Arc::new(manager);

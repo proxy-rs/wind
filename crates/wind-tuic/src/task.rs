@@ -13,26 +13,14 @@ use crate::Error;
 /// before backpressure is applied
 const SPSC_BUFFER_SIZE: usize = 16;
 
-type IncomingRx = (
-	AsyncRx<Bytes>,
-	AsyncRx<(SendStream, RecvStream)>,
-	AsyncRx<RecvStream>,
-);
+type IncomingRx = (AsyncRx<Bytes>, AsyncRx<(SendStream, RecvStream)>, AsyncRx<RecvStream>);
 
 pub trait ClientTaskExt {
-	async fn handle_incoming(
-		&self,
-		ctx: Arc<AppContext>,
-		cancel_token: CancellationToken,
-	) -> Result<IncomingRx, Error>;
+	async fn handle_incoming(&self, ctx: Arc<AppContext>, cancel_token: CancellationToken) -> Result<IncomingRx, Error>;
 }
 
 impl ClientTaskExt for quinn::Connection {
-	async fn handle_incoming(
-		&self,
-		ctx: Arc<AppContext>,
-		cancel_token: CancellationToken,
-	) -> Result<IncomingRx, Error> {
+	async fn handle_incoming(&self, ctx: Arc<AppContext>, cancel_token: CancellationToken) -> Result<IncomingRx, Error> {
 		// Create channels for datagrams
 		let (datagram_tx, datagram_rx) = crossfire::spsc::bounded_async(SPSC_BUFFER_SIZE);
 		let conn_datagram = self.clone();

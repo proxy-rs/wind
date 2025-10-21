@@ -6,12 +6,7 @@ use clap::{ArgAction, Parser, Subcommand};
 #[command(about, long_about = None)]
 pub struct Cli {
 	/// Set a custom config
-	#[arg(
-		short,
-		visible_short_alias = 'f',
-		long,
-		value_name = "FILE/BASE64-TEXT"
-	)]
+	#[arg(short, visible_short_alias = 'f', long, value_name = "FILE/BASE64-TEXT")]
 	pub config: Option<String>,
 
 	/// Set configuration directory

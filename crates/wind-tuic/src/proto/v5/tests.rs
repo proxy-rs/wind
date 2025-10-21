@@ -28,7 +28,10 @@ mod test {
 		let mut buf = BytesMut::with_capacity(50);
 		HeaderCodec.encode(Header::new(CmdType::Auth), &mut buf)?;
 		CmdCodec(CmdType::Auth).encode(auth_cmd, &mut buf)?;
-		assert_eq!("0500000000000000000000000000000000000101010101010101010101010101010101010101010101010101010101010101", hex::encode(buf));
+		assert_eq!(
+			"0500000000000000000000000000000000000101010101010101010101010101010101010101010101010101010101010101",
+			hex::encode(buf)
+		);
 		Ok(())
 	}
 }

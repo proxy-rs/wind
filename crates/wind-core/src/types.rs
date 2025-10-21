@@ -45,17 +45,13 @@ impl<'de> Deserialize<'de> for TargetAddr {
 			let end_bracket = match s.find(']') {
 				Some(pos) => pos,
 				None => {
-					return Err(Error::custom(
-						"Invalid IPv6 address format, missing closing bracket",
-					));
+					return Err(Error::custom("Invalid IPv6 address format, missing closing bracket"));
 				}
 			};
 
 			// Ensure there's a colon after the closing bracket
 			if end_bracket + 1 >= s.len() || !s[end_bracket + 1..].starts_with(':') {
-				return Err(Error::custom(
-					"Invalid IPv6 address format, expected [IPv6]:port",
-				));
+				return Err(Error::custom("Invalid IPv6 address format, expected [IPv6]:port"));
 			}
 
 			let ipv6_str = &s[1..end_bracket];

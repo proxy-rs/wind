@@ -66,9 +66,7 @@ impl Decoder for CmdCodec {
 					return Ok(None);
 				}
 
-				Ok(Some(Command::Dissociate {
-					assoc_id: src.get_u16(),
-				}))
+				Ok(Some(Command::Dissociate { assoc_id: src.get_u16() }))
 			}
 			CmdType::Heartbeat => Ok(Some(Command::Heartbeat)),
 			CmdType::Other(value) => UnknownCommandTypeSnafu { value }.fail(),

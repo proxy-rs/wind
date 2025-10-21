@@ -8,15 +8,11 @@ use rustls::{
 use crate::{Error, outbound::TuicOutboundOpts};
 
 #[allow(clippy::result_large_err)]
-pub(crate) fn tls_config(
-	_servername: &str,
-	opts: &TuicOutboundOpts,
-) -> Result<rustls::ClientConfig, Error> {
+pub(crate) fn tls_config(_servername: &str, opts: &TuicOutboundOpts) -> Result<rustls::ClientConfig, Error> {
 	use rustls::ClientConfig;
 	use rustls_platform_verifier::BuilderVerifierExt;
 
-	let arc_crypto_provider =
-		CryptoProvider::get_default().expect("Unable to find default crypto provider");
+	let arc_crypto_provider = CryptoProvider::get_default().expect("Unable to find default crypto provider");
 	let mut config = if opts.skip_cert_verify {
 		ClientConfig::builder()
 			.dangerous()
@@ -28,10 +24,7 @@ pub(crate) fn tls_config(
 			.with_platform_verifier()?
 			.with_no_client_auth()
 	};
-	config.alpn_protocols = vec![String::from("h3")]
-		.into_iter()
-		.map(|alpn| alpn.into_bytes())
-		.collect();
+	config.alpn_protocols = vec![String::from("h3")].into_iter().map(|alpn| alpn.into_bytes()).collect();
 
 	Ok(config)
 }
@@ -67,12 +60,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
 		cert: &CertificateDer<'_>,
 		dss: &rustls::DigitallySignedStruct,
 	) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-		rustls::crypto::verify_tls12_signature(
-			message,
-			cert,
-			dss,
-			&self.0.signature_verification_algorithms,
-		)
+		rustls::crypto::verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
 	}
 
 	fn verify_tls13_signature(
@@ -81,12 +69,7 @@ impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
 		cert: &CertificateDer<'_>,
 		dss: &rustls::DigitallySignedStruct,
 	) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-		rustls::crypto::verify_tls13_signature(
-			message,
-			cert,
-			dss,
-			&self.0.signature_verification_algorithms,
-		)
+		rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
 	}
 
 	fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {

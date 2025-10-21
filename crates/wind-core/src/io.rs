@@ -103,37 +103,21 @@ pub mod quinn {
 	}
 
 	impl AsyncWrite for QuinnCompat {
-		fn poll_write(
-			mut self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-			buf: &[u8],
-		) -> Poll<Result<usize, io::Error>> {
-			Pin::new(&mut self.send)
-				.poll_write(cx, buf)
-				.map_err(|e| io::Error::other(e))
+		fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, io::Error>> {
+			Pin::new(&mut self.send).poll_write(cx, buf).map_err(|e| io::Error::other(e))
 		}
 
-		fn poll_flush(
-			mut self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-		) -> Poll<Result<(), io::Error>> {
+		fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
 			Pin::new(&mut self.send).poll_flush(cx)
 		}
 
-		fn poll_shutdown(
-			mut self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-		) -> Poll<Result<(), io::Error>> {
+		fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
 			Pin::new(&mut self.send).poll_shutdown(cx)
 		}
 	}
 
 	impl AsyncRead for QuinnCompat {
-		fn poll_read(
-			mut self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-			buf: &mut ReadBuf<'_>,
-		) -> Poll<io::Result<()>> {
+		fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
 			Pin::new(&mut self.recv).poll_read(cx, buf)
 		}
 	}

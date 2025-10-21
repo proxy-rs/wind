@@ -29,10 +29,7 @@ pub enum CmdType {
 
 impl Header {
 	pub fn new(command: CmdType) -> Self {
-		Self {
-			version: VER,
-			command,
-		}
+		Self { version: VER, command }
 	}
 }
 

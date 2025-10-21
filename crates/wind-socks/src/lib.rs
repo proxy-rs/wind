@@ -2,9 +2,7 @@
 
 use std::{backtrace::Backtrace, net::SocketAddr};
 
-use fast_socks5::{
-	ReplyError, server::SocksServerError, util::target_addr::TargetAddr as SocksTargetAddr,
-};
+use fast_socks5::{ReplyError, server::SocksServerError, util::target_addr::TargetAddr as SocksTargetAddr};
 use snafu::{IntoError, Snafu};
 use wind_core::types::TargetAddr;
 

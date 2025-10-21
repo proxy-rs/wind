@@ -32,38 +32,24 @@ mod compat {
 	}
 
 	impl AsyncRead for TokioTcpCompat {
-		fn poll_read(
-			self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-			buf: &mut ReadBuf<'_>,
-		) -> Poll<std::io::Result<()>> {
+		fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
 			let this = self.project();
 			this.inner.poll_read(cx, buf)
 		}
 	}
 
 	impl AsyncWrite for TokioTcpCompat {
-		fn poll_write(
-			self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-			buf: &[u8],
-		) -> Poll<Result<usize, std::io::Error>> {
+		fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, std::io::Error>> {
 			let this = self.project();
 			this.inner.poll_write(cx, buf)
 		}
 
-		fn poll_flush(
-			self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-		) -> Poll<Result<(), std::io::Error>> {
+		fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
 			let this = self.project();
 			this.inner.poll_flush(cx)
 		}
 
-		fn poll_shutdown(
-			self: Pin<&mut Self>,
-			cx: &mut Context<'_>,
-		) -> Poll<Result<(), std::io::Error>> {
+		fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
 			let this = self.project();
 			this.inner.poll_shutdown(cx)
 		}

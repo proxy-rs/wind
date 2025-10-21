@@ -24,10 +24,7 @@ pub fn target_addr_to_socket_addr(addr: &TargetAddr) -> SocketAddr {
 			let addrs = (domain.as_str(), *port)
 				.to_socket_addrs()
 				.expect("Failed to resolve domain to socket address");
-			addrs
-				.into_iter()
-				.next()
-				.expect("No address found for the given domain")
+			addrs.into_iter().next().expect("No address found for the given domain")
 		}
 	}
 }

@@ -2,7 +2,7 @@ unstable_features = true                # Enable unstable features (requires nig
 edition = "2024"                        # Rust edition
 style_edition = "2024"                  # Style edition for formatting
 hard_tabs = true                        # Use tabs for indentation
-max_width = 100                         # Maximum width of each line
+max_width = 128                         # Maximum width of each line
 
 # Imports
 group_imports = "StdExternalCrate"      # Group imports: Std, External, then Crate

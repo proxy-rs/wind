@@ -46,10 +46,7 @@ mod tests {
 	}
 
 	#[test]
-	#[cfg_attr(
-		not(any(target_os = "linux", target_os = "windows", target_os = "android")),
-		ignore
-	)]
+	#[cfg_attr(not(any(target_os = "linux", target_os = "windows", target_os = "android")), ignore)]
 	fn gso() {
 		let send = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
 			.or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
@@ -57,9 +54,7 @@ mod tests {
 		let recv = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0))
 			.or_else(|_| UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)))
 			.unwrap();
-		let max_segments = UdpSocketState::new((&send).into())
-			.unwrap()
-			.max_gso_segments();
+		let max_segments = UdpSocketState::new((&send).into()).unwrap().max_gso_segments();
 		let dst_addr = recv.local_addr().unwrap();
 		const SEGMENT_SIZE: usize = 128;
 		let msg = vec![0xAB; SEGMENT_SIZE * max_segments];
@@ -85,24 +80,11 @@ mod tests {
 			1 // Everyone else is sane.
 		};
 
-		let send = socket2::Socket::new(
-			socket2::Domain::IPV4,
-			socket2::Type::DGRAM,
-			Some(socket2::Protocol::UDP),
-		)
-		.unwrap();
-		let recv = socket2::Socket::new(
-			socket2::Domain::IPV4,
-			socket2::Type::DGRAM,
-			Some(socket2::Protocol::UDP),
-		)
-		.unwrap();
+		let send = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
+		let recv = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
 		for sock in [&send, &recv] {
-			sock.bind(&socket2::SockAddr::from(SocketAddrV4::new(
-				Ipv4Addr::LOCALHOST,
-				0,
-			)))
-			.unwrap();
+			sock.bind(&socket2::SockAddr::from(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)))
+				.unwrap();
 
 			let socket_state = UdpSocketState::new(sock.into()).expect("created socket state");
 
@@ -120,8 +102,7 @@ mod tests {
 			assert_eq!(
 				buffer_after,
 				BUFFER_SIZE * FACTOR,
-				"setting send buffer size to {BUFFER_SIZE} resulted in {buffer_before} -> \
-				 {buffer_after}",
+				"setting send buffer size to {BUFFER_SIZE} resulted in {buffer_before} -> {buffer_after}",
 			);
 
 			// Change the receive buffer size.
@@ -133,8 +114,7 @@ mod tests {
 			assert_eq!(
 				buffer_after,
 				BUFFER_SIZE * FACTOR,
-				"setting recv buffer size to {BUFFER_SIZE} resulted in {buffer_before} -> \
-				 {buffer_after}",
+				"setting recv buffer size to {BUFFER_SIZE} resulted in {buffer_before} -> {buffer_after}",
 			);
 		}
 
@@ -166,27 +146,19 @@ mod tests {
 		let mut datagrams = 0;
 		while datagrams < expected_datagrams {
 			let n = recv_state
-				.recv(
-					recv.into(),
-					&mut [IoSliceMut::new(&mut buf)],
-					slice::from_mut(&mut meta),
-				)
+				.recv(recv.into(), &mut [IoSliceMut::new(&mut buf)], slice::from_mut(&mut meta))
 				.unwrap();
 			assert_eq!(n, 1);
 			let segments = meta.len / meta.stride;
 			for i in 0..segments {
 				assert_eq!(
 					&buf[(i * meta.stride)..((i + 1) * meta.stride)],
-					&transmit.contents
-						[(datagrams + i) * segment_size..(datagrams + i + 1) * segment_size]
+					&transmit.contents[(datagrams + i) * segment_size..(datagrams + i + 1) * segment_size]
 				);
 			}
 			datagrams += segments;
 
-			assert_eq!(
-				meta.addr.port(),
-				send.local_addr().unwrap().as_socket().unwrap().port()
-			);
+			assert_eq!(meta.addr.port(), send.local_addr().unwrap().as_socket().unwrap().port());
 			let send_v6 = send.local_addr().unwrap().as_socket().unwrap().is_ipv6();
 			let recv_v6 = recv.local_addr().unwrap().as_socket().unwrap().is_ipv6();
 			let mut addresses = vec![meta.addr.ip()];
@@ -202,9 +174,7 @@ mod tests {
 					(false, true) => {
 						assert_eq!(ip_to_v6_mapped(addr), Ipv4Addr::LOCALHOST.to_ipv6_mapped())
 					}
-					(true, true) => assert!(
-						addr == Ipv6Addr::LOCALHOST || addr == Ipv4Addr::LOCALHOST.to_ipv6_mapped()
-					),
+					(true, true) => assert!(addr == Ipv6Addr::LOCALHOST || addr == Ipv4Addr::LOCALHOST.to_ipv6_mapped()),
 				}
 			}
 

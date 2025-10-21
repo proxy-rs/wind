@@ -11,9 +11,7 @@ use wind_core::types::TargetAddr;
 
 use crate::{
 	ProtoError,
-	proto::{
-		BytesRemainingSnafu, DomainTooLongSnafu, FailParseDomainSnafu, UnknownAddressTypeSnafu,
-	},
+	proto::{BytesRemainingSnafu, DomainTooLongSnafu, FailParseDomainSnafu, UnknownAddressTypeSnafu},
 };
 
 //-----------------------------------------------------------------------------
@@ -293,9 +291,7 @@ mod test {
 		];
 
 		// Encode the second address and print its hex representation
-		FramedWrite::new(&mut buffer, AddressCodec)
-			.send(vars[1].clone())
-			.await?;
+		FramedWrite::new(&mut buffer, AddressCodec).send(vars[1].clone()).await?;
 		println!("{}", hex::encode(buffer));
 		Ok(())
 	}

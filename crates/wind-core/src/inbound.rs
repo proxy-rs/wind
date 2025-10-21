@@ -8,10 +8,6 @@ pub trait AbstractInbound {
 }
 
 pub trait InboundCallback: Send + Sync {
-	fn handle_tcpstream(
-		&self,
-		target_addr: TargetAddr,
-		stream: impl AbstractTcpStream,
-	) -> impl FutResult<()>;
+	fn handle_tcpstream(&self, target_addr: TargetAddr, stream: impl AbstractTcpStream) -> impl FutResult<()>;
 	fn handle_udpsocket(&self, socket: impl AbstractUdpSocket + 'static) -> impl FutResult<()>;
 }

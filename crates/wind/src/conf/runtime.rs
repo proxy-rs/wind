@@ -20,10 +20,7 @@ impl Config {
 			tuic_opt:  TuicOutboundOpts {
 				peer_addr:          target_addr_to_socket_addr(&config.tuic_opt.server_addr),
 				sni:                config.tuic_opt.sni.clone(),
-				auth:               (
-					config.tuic_opt.uuid,
-					config.tuic_opt.password.as_bytes().to_vec().into(),
-				),
+				auth:               (config.tuic_opt.uuid, config.tuic_opt.password.as_bytes().to_vec().into()),
 				zero_rtt_handshake: config.tuic_opt.zero_rtt_handshake,
 				heartbeat:          config.tuic_opt.heartbeat,
 				gc_interval:        config.tuic_opt.gc_interval,

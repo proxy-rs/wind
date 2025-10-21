@@ -67,9 +67,7 @@ macro_rules! extract_crate_name {
 		const MODULE_PATH_SEPARATOR_INDEX: usize = {
 			let mut index = 0;
 			loop {
-				if index == MODULE_PATH_BYTE_SLICE.len()
-					|| MODULE_PATH_BYTE_SLICE[index] == MODULE_PATH_SEPARATOR
-				{
+				if index == MODULE_PATH_BYTE_SLICE.len() || MODULE_PATH_BYTE_SLICE[index] == MODULE_PATH_SEPARATOR {
 					break index;
 				}
 				index += 1;

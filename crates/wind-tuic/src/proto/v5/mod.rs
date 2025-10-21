@@ -19,11 +19,7 @@ use crate::{Error, SendDatagramSnafu};
 const VER: u8 = 5;
 
 pub trait ClientProtoExt {
-	fn send_auth(
-		&self,
-		uuid: &uuid::Uuid,
-		secret: &[u8],
-	) -> impl Future<Output = Result<(), Error>> + Send;
+	fn send_auth(&self, uuid: &uuid::Uuid, secret: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
 	fn send_heartbeat(&self) -> impl Future<Output = Result<(), Error>> + Send;
 	fn open_tcp(
 		&self,
@@ -65,19 +61,14 @@ impl ClientProtoExt for quinn::Connection {
 		Ok(())
 	}
 
-	async fn open_tcp(
-		&self,
-		addr: &TargetAddr,
-		mut stream: impl AbstractTcpStream,
-	) -> Result<(usize, usize), Error> {
+	async fn open_tcp(&self, addr: &TargetAddr, mut stream: impl AbstractTcpStream) -> Result<(usize, usize), Error> {
 		let (mut send, recv) = self.open_bi().await?;
 		let mut buf = BytesMut::with_capacity(9);
 		HeaderCodec.encode(Header::new(CmdType::Connect), &mut buf)?;
 		CmdCodec(CmdType::Connect).encode(Command::Connect, &mut buf)?;
 		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
 		send.write_chunk(buf.into()).await?;
-		let (a, b, err) =
-			wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
+		let (a, b, err) = wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
 		if let Some(e) = err {
 			return Err(e.into());
 		}
@@ -129,8 +120,7 @@ impl ClientProtoExt for quinn::Connection {
 		HeaderCodec.encode(Header::new(CmdType::Heartbeat), &mut buf)?;
 
 		// Send it as a datagram for lowest latency
-		self.send_datagram(buf.freeze())
-			.context(SendDatagramSnafu)?;
+		self.send_datagram(buf.freeze()).context(SendDatagramSnafu)?;
 
 		Ok(())
 	}

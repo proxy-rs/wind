@@ -55,11 +55,7 @@ use tokio::{
 /// 	.unwrap();
 /// # });
 /// ```
-pub async fn test_socks5_tcp(
-	proxy_addr: &str,
-	target_host: &str,
-	target_port: u16,
-) -> eyre::Result<()> {
+pub async fn test_socks5_tcp(proxy_addr: &str, target_host: &str, target_port: u16) -> eyre::Result<()> {
 	use fast_socks5::client::Socks5Stream;
 
 	println!("\n========== SOCKS5 TCP Test ==========");
@@ -137,11 +133,7 @@ pub async fn test_socks5_tcp(
 /// 	.unwrap();
 /// # });
 /// ```
-pub async fn test_socks5_udp(
-	proxy_addr: &str,
-	target_host: &str,
-	target_port: u16,
-) -> eyre::Result<()> {
+pub async fn test_socks5_udp(proxy_addr: &str, target_host: &str, target_port: u16) -> eyre::Result<()> {
 	use std::time::Duration;
 
 	use fast_socks5::client::Socks5Datagram;
@@ -165,10 +157,7 @@ pub async fn test_socks5_udp(
 		.context("SOCKS5 UDP association failed")?;
 
 	println!("✓ UDP association established through proxy");
-	println!(
-		"✓ Local UDP socket bound to: {}",
-		socket.get_ref().local_addr()?
-	);
+	println!("✓ Local UDP socket bound to: {}", socket.get_ref().local_addr()?);
 
 	// Prepare DNS query packet
 	let dns_query: Vec<u8> = vec![
@@ -179,17 +168,14 @@ pub async fn test_socks5_udp(
 		0x00, 0x00, // Authority RRs: 0
 		0x00, 0x00, // Additional RRs: 0
 		// Query: example.com
-		0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
-		0x01, // Type: A
+		0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 	];
 
 	println!("✓ DNS query prepared ({} bytes)", dns_query.len());
 
 	// Send DNS query through SOCKS5 UDP
-	socket
-		.send_to(&dns_query, (target_host, target_port))
-		.await?;
+	socket.send_to(&dns_query, (target_host, target_port)).await?;
 	println!("✓ DNS query sent through proxy");
 
 	// Receive UDP response with timeout
@@ -247,10 +233,7 @@ pub async fn test_direct_tcp(target_host: &str, target_port: u16) -> eyre::Resul
 	println!("Connection successful!");
 
 	// Send simple HTTP GET request
-	let request = format!(
-		"GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-		target_host
-	);
+	let request = format!("GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", target_host);
 	stream.write_all(request.as_bytes()).await?;
 
 	let mut response = vec![0u8; 1024];
@@ -271,8 +254,8 @@ pub async fn test_direct_udp(target_host: &str, target_port: u16) -> eyre::Resul
 
 	// Send simple DNS query
 	let dns_query: Vec<u8> = vec![
-		0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x65, 0x78,
-		0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
+		0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
+		0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01,
 	];
 
 	socket.send(&dns_query).await?;
@@ -322,21 +305,13 @@ mod unit_tests {
 	#[ignore = "requires network connection"]
 	async fn test_direct_tcp_connection() {
 		let result = test_direct_tcp("example.com", 80).await;
-		assert!(
-			result.is_ok(),
-			"Direct TCP connection failed: {:?}",
-			result.err()
-		);
+		assert!(result.is_ok(), "Direct TCP connection failed: {:?}", result.err());
 	}
 
 	#[tokio::test]
 	#[ignore = "requires network connection"]
 	async fn test_direct_udp_connection() {
 		let result = test_direct_udp("8.8.8.8", 53).await;
-		assert!(
-			result.is_ok(),
-			"Direct UDP connection failed: {:?}",
-			result.err()
-		);
+		assert!(result.is_ok(), "Direct UDP connection failed: {:?}", result.err());
 	}
 }

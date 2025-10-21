@@ -40,12 +40,7 @@ pub trait AbstractUdpSocket: Send + Sync {
 	fn try_send(&self, transmit: &Transmit) -> IoResult<()>;
 
 	/// Poll to receive a UDP datagram.
-	fn poll_recv(
-		&self,
-		cx: &mut Context,
-		bufs: &mut [IoSliceMut<'_>],
-		meta: &mut [RecvMeta],
-	) -> Poll<IoResult<usize>>;
+	fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> Poll<IoResult<usize>>;
 
 	/// Returns the local socket address.
 	fn local_addr(&self) -> IoResult<SocketAddr>;
@@ -69,21 +64,12 @@ pub trait AbstractUdpSocket: Send + Sync {
 
 	/// Receive a UDP datagram.
 	/// `meta` is the returned metadata for each buffer in `bufs`.
-	fn recv(
-		&self,
-		bufs: &mut [IoSliceMut<'_>],
-		meta: &mut [RecvMeta],
-	) -> impl Future<Output = IoResult<usize>> + Send {
+	fn recv(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> impl Future<Output = IoResult<usize>> + Send {
 		poll_fn(|cx| self.poll_recv(cx, bufs, meta))
 	}
 
 	/// Sends data on the socket to the given address.
-	fn poll_send(
-		&self,
-		_cx: &mut Context<'_>,
-		buf: &[u8],
-		target: SocketAddr,
-	) -> Poll<IoResult<usize>> {
+	fn poll_send(&self, _cx: &mut Context<'_>, buf: &[u8], target: SocketAddr) -> Poll<IoResult<usize>> {
 		let transmit = Transmit {
 			destination:  target,
 			contents:     buf,
@@ -98,11 +84,7 @@ pub trait AbstractUdpSocket: Send + Sync {
 	}
 
 	/// Sends data on the socket to the given address.
-	fn send<'a>(
-		&'a self,
-		buf: &'a [u8],
-		target: SocketAddr,
-	) -> impl Future<Output = IoResult<usize>> + Send + 'a {
+	fn send<'a>(&'a self, buf: &'a [u8], target: SocketAddr) -> impl Future<Output = IoResult<usize>> + Send + 'a {
 		poll_fn(move |cx| self.poll_send(cx, buf, target))
 	}
 }
@@ -129,9 +111,8 @@ impl AbstractUdpSocket for TokioUdpSocket {
 	}
 
 	fn try_send(&self, transmit: &Transmit) -> std::io::Result<()> {
-		self.io.try_io(Interest::WRITABLE, || {
-			self.inner.send((&self.io).into(), transmit)
-		})
+		self.io
+			.try_io(Interest::WRITABLE, || self.inner.send((&self.io).into(), transmit))
 	}
 
 	fn poll_recv(
@@ -142,9 +123,10 @@ impl AbstractUdpSocket for TokioUdpSocket {
 	) -> Poll<std::io::Result<usize>> {
 		loop {
 			ready!(self.io.poll_recv_ready(cx))?;
-			if let Ok(res) = self.io.try_io(Interest::READABLE, || {
-				self.inner.recv((&self.io).into(), bufs, meta)
-			}) {
+			if let Ok(res) = self
+				.io
+				.try_io(Interest::READABLE, || self.inner.recv((&self.io).into(), bufs, meta))
+			{
 				return Poll::Ready(Ok(res));
 			}
 		}
@@ -177,10 +159,7 @@ pin_project_lite::pin_project! {
 
 impl<MakeFut, Fut> UdpPollHelper<MakeFut, Fut> {
 	fn new(make_fut: MakeFut) -> Self {
-		Self {
-			make_fut,
-			fut: None,
-		}
+		Self { make_fut, fut: None }
 	}
 }
 

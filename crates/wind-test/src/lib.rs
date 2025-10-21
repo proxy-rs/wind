@@ -8,8 +8,7 @@ pub mod benches {
 
 		group.bench_function("Arc::from(Vec<u8>)", |b| {
 			b.iter(|| {
-				let s =
-					String::from("hello rusthello rusthello rusthello rusthello rusthello rust");
+				let s = String::from("hello rusthello rusthello rusthello rusthello rusthello rust");
 				let vec = s.into_bytes();
 				black_box(Arc::<[u8]>::from(vec));
 			})
@@ -17,8 +16,7 @@ pub mod benches {
 
 		group.bench_function("Arc::from(Box<[u8]>)", |b| {
 			b.iter(|| {
-				let s =
-					String::from("hello rusthello rusthello rusthello rusthello rusthello rust");
+				let s = String::from("hello rusthello rusthello rusthello rusthello rusthello rust");
 				let vec = s.into_bytes();
 				black_box(Arc::<[u8]>::from(vec.into_boxed_slice()));
 			})

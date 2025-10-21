@@ -49,8 +49,7 @@ fn udp_bind_random_port(addr: Option<IpAddr>) -> io::Result<Socket> {
 			.and_then(|socket| socket.set_only_v6(false).map(|_| socket))
 			.and_then(|socket| socket.bind(&V6_UNSPEC.into()).map(|_| socket))
 			.or_else(|_| {
-				Socket::new(Domain::IPV4, Type::DGRAM, None)
-					.and_then(|socket| socket.bind(&V4_UNSPEC.into()).map(|_| socket))
+				Socket::new(Domain::IPV4, Type::DGRAM, None).and_then(|socket| socket.bind(&V4_UNSPEC.into()).map(|_| socket))
 			})
 	}
 	.and_then(|socket| socket.set_nonblocking(true).map(|_| socket))
@@ -73,20 +72,12 @@ where
 		udp_bind_random_port(peer_bind_ip).err_when("binding client udp socket")
 	);
 
-	let peer_addr = try_notify!(
-		proto,
-		peer_sock.local_addr().err_when("getting peer's local addr")
-	);
+	let peer_addr = try_notify!(proto, peer_sock.local_addr().err_when("getting peer's local addr"));
 
-	let reply_port = peer_addr
-		.as_socket()
-		.ok_or(SocksServerError::Bug("addr not IP"))?
-		.port();
+	let reply_port = peer_addr.as_socket().ok_or(SocksServerError::Bug("addr not IP"))?.port();
 
 	// Respect the pre-populated reply IP address.
-	let mut inner = proto
-		.reply_success(SocketAddr::new(reply_ip, reply_port))
-		.await?;
+	let mut inner = proto.reply_success(SocketAddr::new(reply_ip, reply_port)).await?;
 
 	let udp_fut = transfer(peer_sock);
 	let tcp_fut = wait_on_tcp(&mut inner).map_err(Error::from);
