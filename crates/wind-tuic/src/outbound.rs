@@ -46,6 +46,7 @@ impl TuicOutbound {
 		let peer_addr = opts.peer_addr;
 		let server_name = opts.sni.clone();
 
+		// TODO move to top-level initialization
 		{
 			#[cfg(feature = "aws-lc-rs")]
 			rustls::crypto::aws_lc_rs::default_provider()
@@ -201,13 +202,11 @@ impl AbstractOutbound for TuicOutbound {
 			loop {
 				tokio::select! {
 					_ = cancel.cancelled() => break,
-
 				}
 			}
 			eyre::Ok(())
 		});
-		// let mut udp_stream =
-		// 	UdpStream::new(self.connection.clone(), assoc_id, socket.recv()).await?;
+
 		let cancel = self.ctx.token.clone();
 		loop {
 			tokio::select! {

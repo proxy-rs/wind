@@ -28,7 +28,7 @@ pub enum Command {
 	Heartbeat,
 }
 
-// https://github.com/proxy-rs/wind/blob/main/crates/wind-tuic/SPEC.md#3-command-specifications
+// https://github.com/proxy-rs/wind/blob/main/crates/wind-tuic/SPEC.md#5-command-definitions
 #[cfg(feature = "decode")]
 impl Decoder for CmdCodec {
 	type Error = crate::proto::ProtoError;
