@@ -1097,6 +1097,7 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 	}
 
 	// Define outbound enum for routing
+	#[allow(unused)]
 	enum TestOutbounds {
 		Tuic(wind_tuic::outbound::TuicOutbound),
 	}
