@@ -51,9 +51,6 @@ pub enum StackPrefer {
 
 impl StackPrefer {
 	pub fn support_v6(&self) -> bool {
-		match self {
-			StackPrefer::V4 => false,
-			_ => true,
-		}
+		!matches!(self, StackPrefer::V4)
 	}
 }

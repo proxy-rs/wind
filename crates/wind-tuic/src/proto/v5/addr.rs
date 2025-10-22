@@ -67,7 +67,6 @@ impl From<TargetAddr> for Address {
 
 /// Implementation according to TUIC specification:
 /// https://github.com/proxy-rs/wind/blob/main/crates/wind-tuic/SPEC.md#6-address-encoding
-
 #[cfg(feature = "decode")]
 impl Decoder for AddressCodec {
 	type Error = ProtoError;

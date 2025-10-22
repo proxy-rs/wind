@@ -1,6 +1,6 @@
 mod header;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BytesMut};
 pub use header::*;
 
 mod cmd;

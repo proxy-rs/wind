@@ -4,7 +4,7 @@ use fast_socks5::{ReplyError, Socks5Command, server::Socks5ServerProtocol, util:
 use snafu::ResultExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
-use wind_core::{AbstractInbound, InboundCallback, error, info, types::TargetAddr, udp::TokioUdpSocket};
+use wind_core::{AbstractInbound, InboundCallback, error, info, types::TargetAddr};
 
 use crate::{CallbackSnafu, Error, IoSnafu, SocksSnafu};
 
@@ -95,9 +95,9 @@ impl SocksInbound {
 			Socks5Command::UDPAssociate if self.opts.allow_udp => {
 				let reply_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 				crate::ext::run_udp_proxy(proto, &target_addr, None, reply_ip, move |inbound| async move {
-					cb.handle_udpsocket(TokioUdpSocket::new(inbound.into()).context(IoSnafu)?)
-						.await
-						.context(CallbackSnafu)
+					// Create a virtual UDP socket that handles SOCKS5 UDP headers
+					let virtual_socket = crate::udp::Socks5UdpSocket::new(inbound.into()).context(IoSnafu)?;
+					cb.handle_udpsocket(virtual_socket).await.context(CallbackSnafu)
 				})
 				.await?;
 			}

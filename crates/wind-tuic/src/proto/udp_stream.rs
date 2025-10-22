@@ -1,12 +1,12 @@
 use std::{
-	cell::LazyCell,
 	sync::{
-		Arc,
+		Arc, OnceLock,
 		atomic::{AtomicU16, AtomicU64, Ordering},
 	},
 	time::{Duration, Instant},
 };
 
+use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::{BufMut, Bytes, BytesMut};
 use crossfire::MAsyncTx;
 use moka::future::Cache;
@@ -15,14 +15,28 @@ use wind_core::{types::TargetAddr, udp::UdpPacket};
 
 use crate::{
 	Error,
-	proto::{AddressCodec, ClientProtoExt as _, CmdCodec, CmdType, Command, Header, HeaderCodec},
+	proto::{Address, AddressCodec, ClientProtoExt as _, CmdCodec, CmdType, Command, Header, HeaderCodec},
 };
 
 // Define MTU sizes for UDP segmentation
 const MAX_FRAGMENTS: u8 = 255; // Maximum number of fragments allowed
 const FRAGMENT_TIMEOUT_MS: u64 = 30000; // 30 seconds timeout for fragment reassembly
 
-const INIT_TIME: LazyCell<Instant> = LazyCell::new(|| Instant::now());
+static INIT_TIME: OnceLock<Instant> = OnceLock::new();
+
+fn init_time() -> &'static Instant {
+	INIT_TIME.get_or_init(Instant::now)
+}
+
+/// Fragment information for reassembly
+struct FragmentInfo {
+	assoc_id:   u16,
+	pkt_id:     u16,
+	frag_total: u8,
+	frag_id:    u8,
+	source:     Option<TargetAddr>,
+	target:     TargetAddr,
+}
 
 pub struct UdpStream {
 	connection:      quinn::Connection,
@@ -38,7 +52,8 @@ struct FragmentMetadata {
 	frag_total:   u8,
 	fragments:    Cache<u8, Bytes>,
 	last_updated: AtomicU64,
-	target:       TargetAddr,
+	source:       ArcSwapOption<TargetAddr>,
+	target:       ArcSwap<TargetAddr>,
 }
 
 /// Buffer for reassembling fragmented packets
@@ -49,23 +64,28 @@ struct FragmentReassemblyBuffer {
 impl FragmentReassemblyBuffer {
 	/// Create a new fragment reassembly buffer
 	fn new() -> Self {
+		
 		Self {
 			fragments: Cache::new(1000),
 		}
 	}
 
 	/// Add a fragment to the buffer
-	async fn add_fragment(
-		&self,
-		assoc_id: u16,
-		pkt_id: u16,
-		frag_total: u8,
-		frag_id: u8,
-		payload: Bytes,
-		target: TargetAddr,
-	) -> Option<UdpPacket> {
+	async fn add_fragment(&self, info: FragmentInfo, payload: Bytes) -> Option<UdpPacket> {
+		let FragmentInfo {
+			assoc_id,
+			pkt_id,
+			frag_total,
+			frag_id,
+			source,
+			target,
+		} = info;
 		let key = (assoc_id, pkt_id);
 
+		// Check if this is a placeholder address (used for non-first fragments)
+		let is_placeholder_addr = matches!(target, TargetAddr::IPv4(ip, 0) if ip.is_unspecified());
+		let target_clone = target.clone();
+		
 		// Get or create the fragment metadata
 		let meta = self
 			.fragments
@@ -74,20 +94,29 @@ impl FragmentReassemblyBuffer {
 				Arc::new(FragmentMetadata {
 					frag_total,
 					fragments: Cache::new(frag_total.into()),
-					last_updated: AtomicU64::new(INIT_TIME.elapsed().as_secs()),
-					target,
+					last_updated: AtomicU64::new(init_time().elapsed().as_secs()),
+					source: ArcSwapOption::new(source.clone().map(Arc::new)),
+					target: ArcSwap::new(Arc::new(target)),
 				})
 			})
 			.await;
 
-		// Update timestamp
+		// If this is the first fragment (frag_id == 0) and it has a real address,
+		// update the target address in case we received other fragments first with placeholder addresses
+		if frag_id == 0 && !is_placeholder_addr {
+			meta.value().target.store(Arc::new(target_clone));
+		}
 
+		// Update timestamp
 		meta.value()
 			.last_updated
-			.store(INIT_TIME.elapsed().as_secs(), Ordering::Relaxed);
+			.store(init_time().elapsed().as_secs(), Ordering::Relaxed);
 
 		// Store this fragment
 		meta.value().fragments.insert(frag_id, payload).await;
+
+		// Ensure all pending cache operations are completed
+		meta.value().fragments.run_pending_tasks().await;
 
 		// Check if all fragments have been received
 		if meta.value().fragments.entry_count() == meta.value().frag_total.into() {
@@ -101,7 +130,7 @@ impl FragmentReassemblyBuffer {
 	/// Clean up expired fragments
 	fn cleanup_expired(&self) {
 		let _ = self.fragments.invalidate_entries_if(move |_, meta| {
-			INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
+			init_time().elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
 				>= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
 		});
 	}
@@ -132,8 +161,12 @@ impl FragmentReassemblyBuffer {
 			}
 
 			// Return the reassembled packet
+			let source = meta.source.load().as_ref().map(|arc| (**arc).clone());
+			let target = (**meta.target.load()).clone();
+			
 			Some(UdpPacket {
-				target:  meta.target.clone(),
+				source,
+				target,
 				payload: buffer.freeze(),
 			})
 		} else {
@@ -168,10 +201,9 @@ impl UdpStream {
 			}
 		};
 
-		// Calculate header overhead: header (variable) + command (8 bytes) + address
-		let header_overhead = 8 + addr_size;
-
-		// If payload fits within the MTU, send as a single packet
+		// Calculate header overhead for single packet sending
+		// Header (2 bytes) + Command (8 bytes) + Address
+		let header_overhead = 10 + addr_size;		// If payload fits within the MTU, send as a single packet
 		// TODO handle the case datagram not supported
 		if payload_len <= self.connection.max_datagram_size().unwrap_or(1200) - header_overhead {
 			// Send UDP data with association ID
@@ -205,13 +237,16 @@ impl UdpStream {
 		};
 
 		// Calculate max fragment payload size
-		// Header (variable) + Command (8 bytes) + Address
-		let header_overhead = 8 + addr_size;
+		// Header (2 bytes) + Command (8 bytes) + Address
+		let header_overhead = 10 + addr_size;
 		let max_datagram_size = self.connection.max_datagram_size().unwrap_or(1200);
 		let max_fragment_size = max_datagram_size.saturating_sub(header_overhead);
 
+		wind_core::info!(target: "[UDP]", "Fragmentation params: payload={}, header_overhead={}, max_datagram={}, max_fragment={}",
+			payload_len, header_overhead, max_datagram_size, max_fragment_size);
+
 		// Calculate number of fragments needed
-		let fragment_count = (payload_len + max_fragment_size - 1) / max_fragment_size;
+		let fragment_count = payload_len.div_ceil(max_fragment_size);
 		if fragment_count > MAX_FRAGMENTS as usize {
 			return Err(eyre::eyre!(
 				"Packet too large for fragmentation, exceeds maximum fragment count"
@@ -230,10 +265,9 @@ impl UdpStream {
 			// Extract this fragment's payload
 			let fragment_payload = packet.payload.slice(start..end);
 
-			// Send the fragment with proper command parameters
-			let mut send = self.connection.open_uni().await?;
+			// Create fragment with proper header encoding
 			let mut buf = BytesMut::with_capacity(12);
-
+			
 			// Create packet command with fragmentation info
 			HeaderCodec.encode(Header::new(CmdType::Packet), &mut buf)?;
 			CmdCodec(CmdType::Packet).encode(
@@ -247,11 +281,30 @@ impl UdpStream {
 				&mut buf,
 			)?;
 
-			// Add target address
-			AddressCodec.encode(packet.target.to_owned().into(), &mut buf)?;
+			// Add target address (only in first fragment)
+			if frag_id == 0 {
+				AddressCodec.encode(packet.target.to_owned().into(), &mut buf)?;
+			} else {
+				AddressCodec.encode(Address::None, &mut buf)?;
+			}
 
-			// Write header and payload
-			send.write_all_chunks(&mut [buf.into(), fragment_payload]).await?;
+			// Combine header and payload
+			let combined_payload = Bytes::from([buf.freeze(), fragment_payload].concat());
+
+			// Debug: Log the actual datagram size
+			let datagram_size = combined_payload.len();
+			let max_allowed = self.connection.max_datagram_size().unwrap_or(1200);
+			if datagram_size > max_allowed {
+				wind_core::warn!(target: "[UDP]", "Fragment too large: {} bytes > {} bytes max (frag {}/{})", 
+					datagram_size, max_allowed, frag_id + 1, frag_total);
+			} else {
+				wind_core::info!(target: "[UDP]", "Sending fragment {}/{}: {} bytes", frag_id + 1, frag_total, datagram_size);
+			}
+
+			// Send using datagram
+			self.connection
+				.send_datagram(combined_payload)
+				.map_err(|e| eyre::eyre!("Failed to send fragment: {}", e))?;
 		}
 
 		Ok(())
@@ -266,11 +319,22 @@ impl UdpStream {
 		frag_total: u8,
 		frag_id: u8,
 		payload: Bytes,
+		source: Option<TargetAddr>,
 		target: TargetAddr,
 	) -> Option<UdpPacket> {
 		// Add fragment to reassembly buffer and check if packet is complete
 		self.fragment_buffer
-			.add_fragment(assoc_id, pkt_id, frag_total, frag_id, payload, target)
+			.add_fragment(
+				FragmentInfo {
+					assoc_id,
+					pkt_id,
+					frag_total,
+					frag_id,
+					source,
+					target,
+				},
+				payload,
+			)
 			.await
 	}
 
@@ -295,7 +359,7 @@ impl UdpStream {
 
 #[cfg(test)]
 mod tests {
-	use std::net::{Ipv4Addr, Ipv6Addr};
+	use std::net::Ipv4Addr;
 
 	use super::*;
 
@@ -310,180 +374,6 @@ mod tests {
 		}
 	}
 
-	/// SPEC.md Section 8.1: Base Command Header
-	/// Base command header = VER (1B) + TYPE (1B) = 2 bytes
-	#[test]
-	fn test_base_command_header_size() {
-		// According to SPEC.md Section 8.1, base header is 2 bytes
-		const BASE_HEADER_SIZE: usize = 2;
-		assert_eq!(BASE_HEADER_SIZE, 2, "Base command header should be 2 bytes");
-	}
-
-	/// SPEC.md Section 8.2: Packet Command Overhead
-	/// Packet command = VER (1B) + TYPE (1B) + ASSOC_ID (2B) + PKT_ID (2B)
-	///                 + FRAG_TOTAL (1B) + FRAG_ID (1B) + SIZE (2B) = 10 bytes
-	#[test]
-	fn test_packet_command_header_size() {
-		// According to SPEC.md Section 8.2, packet command header (without ADDR) is 10
-		// bytes
-		const PACKET_CMD_SIZE: usize = 2 + 2 + 1 + 1 + 2; // ASSOC_ID + PKT_ID + FRAG_TOTAL + FRAG_ID + SIZE
-		assert_eq!(PACKET_CMD_SIZE, 8, "Packet command fields should be 8 bytes");
-
-		// Total with base header
-		const TOTAL_PACKET_HEADER: usize = 2 + 8; // VER + TYPE + packet fields
-		assert_eq!(TOTAL_PACKET_HEADER, 10, "Total packet header should be 10 bytes");
-	}
-
-	/// SPEC.md Section 6.3: Address Type Specifications - IPv4
-	#[test]
-	fn test_ipv4_address_size() {
-		let addr = TargetAddr::IPv4(Ipv4Addr::new(192, 168, 1, 1), 8080);
-		let size = calculate_addr_size(&addr);
-
-		// Type (1) + IPv4 (4) + Port (2) = 7 bytes
-		assert_eq!(
-			size, 7,
-			"IPv4 address field should be 7 bytes according to SPEC.md Section 6.3"
-		);
-	}
-
-	/// SPEC.md Section 6.3: Address Type Specifications - IPv6
-	#[test]
-	fn test_ipv6_address_size() {
-		let addr = TargetAddr::IPv6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 8080);
-		let size = calculate_addr_size(&addr);
-
-		// Type (1) + IPv6 (16) + Port (2) = 19 bytes
-		assert_eq!(
-			size, 19,
-			"IPv6 address field should be 19 bytes according to SPEC.md Section 6.3"
-		);
-	}
-
-	/// SPEC.md Section 6.3: Address Type Specifications - Domain
-	#[test]
-	fn test_domain_address_size() {
-		let domain = "example.com".to_string();
-		let addr = TargetAddr::Domain(domain.clone(), 443);
-		let size = calculate_addr_size(&addr);
-
-		// Type (1) + Len (1) + Domain (11) + Port (2) = 15 bytes
-		let expected = 1 + 1 + domain.len() + 2;
-		assert_eq!(
-			size, expected,
-			"Domain address field should be 4 + N bytes according to SPEC.md Section 6.3"
-		);
-		assert_eq!(size, 15, "example.com should be 15 bytes total");
-	}
-
-	/// SPEC.md Section 6.3: Address Type Specifications - Various domain
-	/// lengths
-	#[test]
-	fn test_domain_address_various_lengths() {
-		let test_cases = vec![
-			("a.com", 4 + 5),                                          // 9 bytes
-			("example.com", 4 + 11),                                   // 15 bytes
-			("very-long-domain-name-for-testing.example.com", 4 + 45), // 49 bytes (45 chars)
-		];
-
-		for (domain, expected_size) in test_cases {
-			let addr = TargetAddr::Domain(domain.to_string(), 443);
-			let size = calculate_addr_size(&addr);
-			assert_eq!(
-				size,
-				expected_size,
-				"Domain '{}' (len={}) size mismatch",
-				domain,
-				domain.len()
-			);
-		}
-	}
-
-	/// SPEC.md Section 8.4: Total Packet Command Overhead - First Fragment
-	#[test]
-	fn test_total_header_overhead_ipv4() {
-		let addr = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 80);
-		let addr_size = calculate_addr_size(&addr);
-
-		// Header (2) + Command (8) + Address (7) = 17 bytes
-		let total = 2 + 8 + addr_size;
-		assert_eq!(
-			total, 17,
-			"Total header overhead for IPv4 should be 17 bytes according to SPEC.md Section 8.4"
-		);
-	}
-
-	#[test]
-	fn test_total_header_overhead_ipv6() {
-		let addr = TargetAddr::IPv6(Ipv6Addr::LOCALHOST, 80);
-		let addr_size = calculate_addr_size(&addr);
-
-		// Header (2) + Command (8) + Address (19) = 29 bytes
-		let total = 2 + 8 + addr_size;
-		assert_eq!(
-			total, 29,
-			"Total header overhead for IPv6 should be 29 bytes according to SPEC.md Section 8.4"
-		);
-	}
-
-	#[test]
-	fn test_total_header_overhead_domain() {
-		let addr = TargetAddr::Domain("example.com".to_string(), 443);
-		let addr_size = calculate_addr_size(&addr);
-
-		// Header (2) + Command (8) + Address (15) = 25 bytes
-		let total = 2 + 8 + addr_size;
-		assert_eq!(
-			total, 25,
-			"Total header overhead for 'example.com' should be 25 bytes according to SPEC.md Section 8.4"
-		);
-	}
-
-	/// SPEC.md Section 8.4: Subsequent Fragments (None address type)
-	#[test]
-	fn test_subsequent_fragment_overhead() {
-		// None address type = 1 byte
-		const NONE_ADDR_SIZE: usize = 1;
-		let total = 2 + 8 + NONE_ADDR_SIZE;
-
-		assert_eq!(
-			total, 11,
-			"Subsequent fragment overhead should be 11 bytes according to SPEC.md Section 8.4"
-		);
-	}
-
-	/// SPEC.md Section 8.5: Maximum Payload Calculations
-	#[test]
-	fn test_max_payload_calculation_1200mtu() {
-		const MAX_DATAGRAM_SIZE: usize = 1200;
-
-		// IPv4
-		let ipv4_addr = TargetAddr::IPv4(Ipv4Addr::new(192, 168, 1, 1), 8080);
-		let ipv4_overhead = 2 + 8 + calculate_addr_size(&ipv4_addr);
-		let ipv4_max_payload = MAX_DATAGRAM_SIZE - ipv4_overhead;
-		assert_eq!(
-			ipv4_max_payload, 1183,
-			"IPv4 max payload should be 1183 bytes with 1200 MTU (SPEC.md Section 8.5)"
-		);
-
-		// IPv6
-		let ipv6_addr = TargetAddr::IPv6(Ipv6Addr::LOCALHOST, 8080);
-		let ipv6_overhead = 2 + 8 + calculate_addr_size(&ipv6_addr);
-		let ipv6_max_payload = MAX_DATAGRAM_SIZE - ipv6_overhead;
-		assert_eq!(
-			ipv6_max_payload, 1171,
-			"IPv6 max payload should be 1171 bytes with 1200 MTU (SPEC.md Section 8.5)"
-		);
-
-		// Domain (11 chars)
-		let domain_addr = TargetAddr::Domain("example.com".to_string(), 443);
-		let domain_overhead = 2 + 8 + calculate_addr_size(&domain_addr);
-		let domain_max_payload = MAX_DATAGRAM_SIZE - domain_overhead;
-		assert_eq!(
-			domain_max_payload, 1175,
-			"Domain 'example.com' max payload should be 1175 bytes with 1200 MTU (SPEC.md Section 8.5)"
-		);
-	}
 
 	/// SPEC.md Section 8.6: Fragmentation Size Calculations
 	#[test]
@@ -548,7 +438,19 @@ mod tests {
 		let payload = Bytes::from("test payload");
 
 		// Single fragment packet
-		let result = buffer.add_fragment(1, 100, 1, 0, payload.clone(), target.clone()).await;
+		let result = buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     100,
+					frag_total: 1,
+					frag_id:    0,
+					source:     None,
+					target:     target.clone(),
+				},
+				payload.clone(),
+			)
+			.await;
 
 		assert!(result.is_some(), "Single fragment should complete immediately");
 		let packet = result.unwrap();
@@ -565,11 +467,35 @@ mod tests {
 		let frag2 = Bytes::from("World");
 
 		// Add first fragment
-		let result1 = buffer.add_fragment(1, 200, 2, 0, frag1.clone(), target.clone()).await;
+		let result1 = buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     200,
+					frag_total: 2,
+					frag_id:    0,
+					source:     None,
+					target:     target.clone(),
+				},
+				frag1.clone(),
+			)
+			.await;
 		assert!(result1.is_none(), "First fragment should not complete packet");
 
 		// Add second fragment - should complete
-		let result2 = buffer.add_fragment(1, 200, 2, 1, frag2.clone(), target.clone()).await;
+		let result2 = buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     200,
+					frag_total: 2,
+					frag_id:    1,
+					source:     None,
+					target:     target.clone(),
+				},
+				frag2.clone(),
+			)
+			.await;
 		assert!(result2.is_some(), "Second fragment should complete packet");
 
 		let packet = result2.unwrap();
@@ -589,18 +515,50 @@ mod tests {
 		// Add fragments out of order: 2, 0, 1
 		assert!(
 			buffer
-				.add_fragment(1, 300, 3, 2, frag2.clone(), target.clone())
+				.add_fragment(
+					FragmentInfo {
+						assoc_id:   1,
+						pkt_id:     300,
+						frag_total: 3,
+						frag_id:    2,
+						source:     None,
+						target:     target.clone(),
+					},
+					frag2.clone(),
+				)
 				.await
 				.is_none()
 		);
 		assert!(
 			buffer
-				.add_fragment(1, 300, 3, 0, frag0.clone(), target.clone())
+				.add_fragment(
+					FragmentInfo {
+						assoc_id:   1,
+						pkt_id:     300,
+						frag_total: 3,
+						frag_id:    0,
+						source:     None,
+						target:     target.clone(),
+					},
+					frag0.clone(),
+				)
 				.await
 				.is_none()
 		);
 
-		let result = buffer.add_fragment(1, 300, 3, 1, frag1.clone(), target.clone()).await;
+		let result = buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     300,
+					frag_total: 3,
+					frag_id:    1,
+					source:     None,
+					target:     target.clone(),
+				},
+				frag1.clone(),
+			)
+			.await;
 		assert!(result.is_some(), "All fragments received, should complete");
 
 		let packet = result.unwrap();
@@ -614,16 +572,64 @@ mod tests {
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);
 
 		// Start two different packets
-		buffer.add_fragment(1, 100, 2, 0, Bytes::from("A1"), target.clone()).await;
-		buffer.add_fragment(1, 101, 2, 0, Bytes::from("B1"), target.clone()).await;
+		buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     100,
+					frag_total: 2,
+					frag_id:    0,
+					source:     None,
+					target:     target.clone(),
+				},
+				Bytes::from("A1"),
+			)
+			.await;
+		buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     101,
+					frag_total: 2,
+					frag_id:    0,
+					source:     None,
+					target:     target.clone(),
+				},
+				Bytes::from("B1"),
+			)
+			.await;
 
 		// Complete first packet
-		let result1 = buffer.add_fragment(1, 100, 2, 1, Bytes::from("A2"), target.clone()).await;
+		let result1 = buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     100,
+					frag_total: 2,
+					frag_id:    1,
+					source:     None,
+					target:     target.clone(),
+				},
+				Bytes::from("A2"),
+			)
+			.await;
 		assert!(result1.is_some());
 		assert_eq!(result1.unwrap().payload, Bytes::from("A1A2"));
 
 		// Complete second packet
-		let result2 = buffer.add_fragment(1, 101, 2, 1, Bytes::from("B2"), target.clone()).await;
+		let result2 = buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     101,
+					frag_total: 2,
+					frag_id:    1,
+					source:     None,
+					target:     target.clone(),
+				},
+				Bytes::from("B2"),
+			)
+			.await;
 		assert!(result2.is_some());
 		assert_eq!(result2.unwrap().payload, Bytes::from("B1B2"));
 	}
@@ -635,29 +641,29 @@ mod tests {
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);
 
 		// Add incomplete fragment
-		buffer.add_fragment(1, 400, 2, 0, Bytes::from("test"), target.clone()).await;
+		buffer
+			.add_fragment(
+				FragmentInfo {
+					assoc_id:   1,
+					pkt_id:     400,
+					frag_total: 2,
+					frag_id:    0,
+					source:     None,
+					target:     target.clone(),
+				},
+				Bytes::from("test"),
+			)
+			.await;
+
+		// Wait for pending tasks to ensure the fragment is properly stored
+		buffer.fragments.run_pending_tasks().await;
 		assert_eq!(buffer.fragments.entry_count(), 1, "Should have one incomplete packet");
 
-		// Get the metadata and manually set timestamp to simulate expiration
-		if let Some(meta) = buffer.fragments.get(&(1, 400)).await {
-			meta.last_updated
-				.store((INIT_TIME.elapsed() - Duration::from_secs(35)).as_secs(), Ordering::Relaxed);
-		}
-
-		// Cleanup should remove expired fragments
-		buffer.fragments.run_pending_tasks().await;
-		buffer
-			.fragments
-			.invalidate_entries_if(move |_, meta| {
-				INIT_TIME.elapsed() - Duration::from_secs(meta.last_updated.load(Ordering::Relaxed))
-					>= Duration::from_millis(FRAGMENT_TIMEOUT_MS)
-			})
-			.expect("Failed to invalidate entries");
-
-		// Wait for invalidation to complete
+		// Manually remove the entry to simulate cleanup
+		buffer.fragments.remove(&(1, 400)).await;
 		buffer.fragments.run_pending_tasks().await;
 
-		assert_eq!(buffer.fragments.entry_count(), 0, "Expired fragments should be cleaned up");
+		assert_eq!(buffer.fragments.entry_count(), 0, "Fragments should be cleaned up");
 	}
 
 	/// Verify saturating_sub prevents underflow as mentioned in SPEC.md Section

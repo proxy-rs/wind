@@ -2,7 +2,7 @@ use std::{
 	fmt::Debug,
 	future::Future,
 	io::{IoSliceMut, Result as IoResult},
-	net::SocketAddr,
+	net::{IpAddr, Ipv6Addr, SocketAddr},
 	pin::Pin,
 	sync::Arc,
 	task::{Context, Poll, ready},
@@ -12,7 +12,9 @@ use bytes::Bytes;
 use futures::future::poll_fn;
 #[cfg(feature = "quic")]
 pub use quinn::UdpPoller;
-pub use quinn_udp::*;
+pub use quinn_udp::{EcnCodepoint, RecvMeta as QuinnRecvMeta, Transmit, UdpSocketState};
+// Re-export quinn-udp's RecvMeta directly
+// pub use quinn_udp::RecvMeta;
 use tokio::io::Interest;
 
 use crate::types::TargetAddr;
@@ -22,8 +24,67 @@ pub trait UdpPoller: Send + Sync + Debug + 'static {
 	fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<std::io::Result<()>>;
 }
 
+/// Metadata for a single buffer filled with bytes received from the network
+///
+/// This is our custom version of RecvMeta that includes destination information
+/// for better packet routing support.
+#[derive(Debug, Clone)]
+pub struct RecvMeta {
+	/// The source address of the datagram(s) contained in the buffer
+	pub addr:        SocketAddr,
+	/// The number of bytes the associated buffer has
+	pub len:         usize,
+	/// The size of a single datagram in the associated buffer
+	///
+	/// When GRO (Generic Receive Offload) is used this indicates the size of a
+	/// single datagram inside the buffer. If the buffer is larger, that is if
+	/// [`len`] is greater then this value, then the individual datagrams
+	/// contained have their boundaries at `stride` increments from the start.
+	/// The last datagram could be smaller than `stride`.
+	pub stride:      usize,
+	/// The Explicit Congestion Notification bits for the datagram(s) in the
+	/// buffer
+	pub ecn:         Option<EcnCodepoint>,
+	/// The destination IP address which was encoded in this datagram
+	///
+	/// Populated on platforms: Windows, Linux, Android (API level > 25),
+	/// FreeBSD, OpenBSD, NetBSD, macOS, and iOS.
+	pub dst_ip:      Option<IpAddr>,
+	/// The destination address that this packet is intended for
+	/// This is our custom field for better packet routing
+	pub destination: Option<TargetAddr>,
+}
+
+impl Default for RecvMeta {
+	/// Constructs a value with arbitrary fields, intended to be overwritten
+	fn default() -> Self {
+		Self {
+			addr:        SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
+			len:         0,
+			stride:      0,
+			ecn:         None,
+			dst_ip:      None,
+			destination: None,
+		}
+	}
+}
+
+impl From<QuinnRecvMeta> for RecvMeta {
+	fn from(meta: QuinnRecvMeta) -> Self {
+		Self {
+			addr:        meta.addr,
+			len:         meta.len,
+			stride:      meta.stride,
+			ecn:         meta.ecn,
+			dst_ip:      meta.dst_ip,
+			destination: None,
+		}
+	}
+}
+
 #[derive(Debug, Clone)]
 pub struct UdpPacket {
+	pub source:  Option<TargetAddr>,
 	pub target:  TargetAddr,
 	pub payload: Bytes,
 }
@@ -32,7 +93,6 @@ pub struct UdpPacket {
 
 pub trait AbstractUdpSocket: Send + Sync {
 	/// Required methods
-
 	/// Creates a UDP socket I/O poller.
 	fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>>;
 
@@ -61,7 +121,6 @@ pub trait AbstractUdpSocket: Send + Sync {
 	}
 
 	/// Supplied methods
-
 	/// Receive a UDP datagram.
 	/// `meta` is the returned metadata for each buffer in `bufs`.
 	fn recv(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> impl Future<Output = IoResult<usize>> + Send {
@@ -123,10 +182,17 @@ impl AbstractUdpSocket for TokioUdpSocket {
 	) -> Poll<std::io::Result<usize>> {
 		loop {
 			ready!(self.io.poll_recv_ready(cx))?;
-			if let Ok(res) = self
-				.io
-				.try_io(Interest::READABLE, || self.inner.recv((&self.io).into(), bufs, meta))
-			{
+			// First, receive into quinn's RecvMeta
+			let mut quinn_meta = vec![QuinnRecvMeta::default(); meta.len()];
+			if let Ok(res) = self.io.try_io(Interest::READABLE, || {
+				self.inner.recv((&self.io).into(), bufs, &mut quinn_meta)
+			}) {
+				// Convert quinn's RecvMeta to our RecvMeta
+				for (i, qmeta) in quinn_meta.iter().enumerate().take(res) {
+					if i < meta.len() {
+						meta[i] = RecvMeta::from(*qmeta);
+					}
+				}
 				return Poll::Ready(Ok(res));
 			}
 		}
@@ -150,7 +216,7 @@ impl AbstractUdpSocket for TokioUdpSocket {
 }
 
 pin_project_lite::pin_project! {
-	struct UdpPollHelper<MakeFut, Fut> {
+	pub struct UdpPollHelper<MakeFut, Fut> {
 		make_fut: MakeFut,
 		#[pin]
 		fut: Option<Fut>,
@@ -158,7 +224,7 @@ pin_project_lite::pin_project! {
 }
 
 impl<MakeFut, Fut> UdpPollHelper<MakeFut, Fut> {
-	fn new(make_fut: MakeFut) -> Self {
+	pub fn new(make_fut: MakeFut) -> Self {
 		Self { make_fut, fut: None }
 	}
 }

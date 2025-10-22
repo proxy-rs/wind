@@ -8,6 +8,7 @@ use wind_core::types::TargetAddr;
 
 pub mod ext;
 pub mod inbound;
+pub mod udp;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
