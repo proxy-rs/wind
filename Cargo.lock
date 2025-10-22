@@ -2525,7 +2525,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "wind"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap 4.5.47",
  "clap_derive",
@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "wind-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "const-str",
@@ -2572,7 +2572,7 @@ dependencies = [
 
 [[package]]
 name = "wind-socks"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arc-swap",
  "eyre",
@@ -2589,7 +2589,7 @@ dependencies = [
 
 [[package]]
 name = "wind-test"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "eyre",
@@ -2602,7 +2602,7 @@ dependencies = [
 
 [[package]]
 name = "wind-tuic"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arc-swap",
  "bytes",

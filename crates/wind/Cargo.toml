@@ -7,27 +7,26 @@ description = "A proxy tool written in Rust"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-wind-core = { path = "../wind-core"}
-wind-socks = { path = "../wind-socks"}
-wind-tuic = { path = "../wind-tuic"}
+wind-core = { version = "0.1.1", path = "../wind-core"}
+wind-socks = { version = "0.1.1", path = "../wind-socks"}
+wind-tuic = { version = "0.1.1", path = "../wind-tuic"}
 
 # Async
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "net"] }
-tokio-util = { version = "*", features = ["rt"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
-# SOCKS5 client library for proxy testing
 fast-socks5 = "1.0.0-rc.0"
 
-tracing = "*"
+tracing = "0.1"
 
 clap = { version = "4", features = ["derive"] }
-clap_derive = { version = "4.0.0-rc.1" }
+clap_derive = { version = "4" }
 
 time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["tracing-log", "std", "local-time","fmt", "ansi"] }
 const-str = "0.7"
 
-eyre = "*"
+eyre = "0.6"
 uuid = { version = "1", features = ["serde"] }
 
 # Configuration

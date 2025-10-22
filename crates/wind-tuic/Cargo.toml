@@ -22,28 +22,28 @@ ring = [
 ]
 
 [dependencies]
-wind-core = { path = "../wind-core", features = ["quic"]}
+wind-core = { version = "0.1.1", path = "../wind-core", features = ["quic"]}
 
 
 # Async
 tokio = { version = "1", default-features = false, features = ["net"] }
-tokio-util = { version = "*", features = ["codec"] }
-quinn = { version = "*", default-features = false, features = ["runtime-tokio"]}
+tokio-util = { version = "0.7", features = ["codec"] }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"]}
 crossfire = { version = "2", features = ["tokio"] }
 
-tokio-stream = "*"
-futures-util = { version = "*", default-features = false, features = ["sink"] }
+tokio-stream = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 
-bytes = "*"
-uuid = "*"
+bytes = "1"
+uuid = "1"
 hex = { package = "const-hex", version = "1" }
 
-eyre = "*"
+eyre = "0.6"
 
 # Patterns
 num_enum = "0.7"
-snafu = { version = "*", features = ["unstable-provider-api"]}
-enum_dispatch = "*"
+snafu = { version = "0.8", features = ["unstable-provider-api"]}
+enum_dispatch = "0.3"
 secrecy = "0.10"
 pin-project = "1"
 moka = { version = "0.12", features = ["future"] }
@@ -51,13 +51,14 @@ portable-atomic = { version = "1" }
 arc-swap = "1"
 
 # TLS
-tokio-rustls = { version = "*", default-features = false, features = ["logging"] }
-rustls = { version  = "*", default-features = false }
-rustls-platform-verifier = { version = "*", default-features = false }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging"] }
+rustls = { version  = "0.23", default-features = false }
+rustls-platform-verifier = { version = "0.6", default-features = false }
 
 
-tracing = "*"
+tracing = "0.1"
+
 [dev-dependencies]
-tokio = { version = "*", default-features = false, features = ["macros", "rt"] }
-eyre = "*"
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+eyre = "0.6"
 color-eyre = { version = "0.6", default-features = false }
