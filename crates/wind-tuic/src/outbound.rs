@@ -53,16 +53,16 @@ pub struct TuicOutbound {
 impl TuicOutbound {
 	pub async fn new(ctx: Arc<AppContext>, opts: TuicOutboundOpts) -> Result<Self, Error> {
 		let peer_addr = opts.peer_addr;
-		let server_name = opts.sni.clone();
+	let server_name = opts.sni.clone();
 
-		// TODO move to top-level initialization
-		{
-			#[cfg(feature = "aws-lc-rs")]
-			rustls::crypto::aws_lc_rs::default_provider().install_default().unwrap();
-			#[cfg(feature = "ring")]
-			rustls::crypto::ring::default_provider().install_default().unwrap();
-		}
-		info!(target: "[OUT]", "Creating a new outboud");
+	// TODO move to top-level initialization
+	{
+		#[cfg(feature = "aws-lc-rs")]
+		let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+		#[cfg(feature = "ring")]
+		let _ = rustls::crypto::ring::default_provider().install_default();
+	}
+	info!(target: "[OUT]", "Creating a new outboud");
 		let client_config = {
 			let tls_config = super::tls::tls_config(&server_name, &opts)?;
 
