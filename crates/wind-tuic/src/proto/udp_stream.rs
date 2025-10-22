@@ -64,7 +64,6 @@ struct FragmentReassemblyBuffer {
 impl FragmentReassemblyBuffer {
 	/// Create a new fragment reassembly buffer
 	fn new() -> Self {
-		
 		Self {
 			fragments: Cache::new(1000),
 		}
@@ -85,7 +84,7 @@ impl FragmentReassemblyBuffer {
 		// Check if this is a placeholder address (used for non-first fragments)
 		let is_placeholder_addr = matches!(target, TargetAddr::IPv4(ip, 0) if ip.is_unspecified());
 		let target_clone = target.clone();
-		
+
 		// Get or create the fragment metadata
 		let meta = self
 			.fragments
@@ -102,7 +101,8 @@ impl FragmentReassemblyBuffer {
 			.await;
 
 		// If this is the first fragment (frag_id == 0) and it has a real address,
-		// update the target address in case we received other fragments first with placeholder addresses
+		// update the target address in case we received other fragments first with
+		// placeholder addresses
 		if frag_id == 0 && !is_placeholder_addr {
 			meta.value().target.store(Arc::new(target_clone));
 		}
@@ -163,7 +163,7 @@ impl FragmentReassemblyBuffer {
 			// Return the reassembled packet
 			let source = meta.source.load().as_ref().map(|arc| (**arc).clone());
 			let target = (**meta.target.load()).clone();
-			
+
 			Some(UdpPacket {
 				source,
 				target,
@@ -203,7 +203,7 @@ impl UdpStream {
 
 		// Calculate header overhead for single packet sending
 		// Header (2 bytes) + Command (8 bytes) + Address
-		let header_overhead = 10 + addr_size;		// If payload fits within the MTU, send as a single packet
+		let header_overhead = 10 + addr_size; // If payload fits within the MTU, send as a single packet
 		// TODO handle the case datagram not supported
 		if payload_len <= self.connection.max_datagram_size().unwrap_or(1200) - header_overhead {
 			// Send UDP data with association ID
@@ -230,23 +230,35 @@ impl UdpStream {
 		let payload_len = packet.payload.len();
 
 		// Calculate address size for proper fragment size calculation
-		let addr_size = match packet.target {
+		let first_frag_addr_size = match packet.target {
 			TargetAddr::IPv4(..) => 1 + 4 + 2,
 			TargetAddr::IPv6(..) => 1 + 16 + 2,
 			TargetAddr::Domain(ref domain, _) => 1 + 1 + domain.len() + 2,
 		};
+		// Subsequent fragments use Address::None which is only 1 byte
+		let subsequent_frag_addr_size = 1;
 
-		// Calculate max fragment payload size
+		// Calculate max fragment payload size for first and subsequent fragments
 		// Header (2 bytes) + Command (8 bytes) + Address
-		let header_overhead = 10 + addr_size;
 		let max_datagram_size = self.connection.max_datagram_size().unwrap_or(1200);
-		let max_fragment_size = max_datagram_size.saturating_sub(header_overhead);
+		let first_frag_header_overhead = 10 + first_frag_addr_size;
+		let subsequent_frag_header_overhead = 10 + subsequent_frag_addr_size;
+		let first_frag_max_payload = max_datagram_size.saturating_sub(first_frag_header_overhead);
+		let subsequent_frag_max_payload = max_datagram_size.saturating_sub(subsequent_frag_header_overhead);
 
-		wind_core::info!(target: "[UDP]", "Fragmentation params: payload={}, header_overhead={}, max_datagram={}, max_fragment={}",
-			payload_len, header_overhead, max_datagram_size, max_fragment_size);
+		wind_core::info!(target: "[UDP]", "Fragmentation params: payload={}, first_frag_overhead={}, subsequent_frag_overhead={}, max_datagram={}, first_frag_max={}, subsequent_frag_max={}",
+			payload_len, first_frag_header_overhead, subsequent_frag_header_overhead, max_datagram_size, first_frag_max_payload, subsequent_frag_max_payload);
 
 		// Calculate number of fragments needed
-		let fragment_count = payload_len.div_ceil(max_fragment_size);
+		// First fragment can hold first_frag_max_payload bytes
+		// Each subsequent fragment can hold subsequent_frag_max_payload bytes
+		let mut remaining_payload = payload_len;
+		let fragment_count = if remaining_payload <= first_frag_max_payload {
+			1
+		} else {
+			remaining_payload -= first_frag_max_payload;
+			1 + remaining_payload.div_ceil(subsequent_frag_max_payload)
+		};
 		if fragment_count > MAX_FRAGMENTS as usize {
 			return Err(eyre::eyre!(
 				"Packet too large for fragmentation, exceeds maximum fragment count"
@@ -258,16 +270,25 @@ impl UdpStream {
 		let frag_total = fragment_count as u8;
 
 		// Fragment and send each piece
+		let mut offset = 0;
 		for frag_id in 0..fragment_count {
-			let start = frag_id * max_fragment_size;
-			let end = ((frag_id + 1) * max_fragment_size).min(payload_len);
+			// Calculate fragment size based on whether it's the first fragment or not
+			let max_frag_payload = if frag_id == 0 {
+				first_frag_max_payload
+			} else {
+				subsequent_frag_max_payload
+			};
+
+			let remaining = payload_len - offset;
+			let fragment_size = remaining.min(max_frag_payload);
+			let end = offset + fragment_size;
 
 			// Extract this fragment's payload
-			let fragment_payload = packet.payload.slice(start..end);
+			let fragment_payload = packet.payload.slice(offset..end);
 
 			// Create fragment with proper header encoding
 			let mut buf = BytesMut::with_capacity(12);
-			
+
 			// Create packet command with fragmentation info
 			HeaderCodec.encode(Header::new(CmdType::Packet), &mut buf)?;
 			CmdCodec(CmdType::Packet).encode(
@@ -305,6 +326,9 @@ impl UdpStream {
 			self.connection
 				.send_datagram(combined_payload)
 				.map_err(|e| eyre::eyre!("Failed to send fragment: {}", e))?;
+
+			// Update offset for next fragment
+			offset = end;
 		}
 
 		Ok(())
@@ -380,21 +404,37 @@ mod tests {
 	fn test_fragment_count_calculation() {
 		const MAX_DATAGRAM_SIZE: usize = 1200;
 		let addr = TargetAddr::IPv4(Ipv4Addr::new(192, 168, 1, 1), 8080);
-		let header_overhead = 2 + 8 + calculate_addr_size(&addr);
-		let max_fragment_size = MAX_DATAGRAM_SIZE - header_overhead;
+
+		// First fragment has full address
+		let first_frag_overhead = 2 + 8 + calculate_addr_size(&addr);
+		// Subsequent fragments use Address::None (1 byte)
+		let subsequent_frag_overhead = 2 + 8 + 1;
+
+		let first_frag_max = MAX_DATAGRAM_SIZE - first_frag_overhead;
+		let subsequent_frag_max = MAX_DATAGRAM_SIZE - subsequent_frag_overhead;
+
+		// Helper function to calculate fragment count
+		let calc_frags = |payload_size: usize| -> usize {
+			if payload_size <= first_frag_max {
+				1
+			} else {
+				let remaining = payload_size - first_frag_max;
+				1 + remaining.div_ceil(subsequent_frag_max)
+			}
+		};
 
 		// Test various payload sizes
 		let test_cases = vec![
-			(1000, 1),  // Small payload, 1 fragment
-			(1183, 1),  // Exactly max size, 1 fragment
-			(1184, 2),  // Just over, 2 fragments
-			(2366, 2),  // 2 * max_fragment_size, 2 fragments
-			(2367, 3),  // Just over 2x, 3 fragments
-			(10000, 9), // Large payload
+			(1000, 1),                                     // Small payload, 1 fragment
+			(first_frag_max, 1),                           // Exactly max size for first fragment, 1 fragment
+			(first_frag_max + 1, 2),                       // Just over, 2 fragments
+			(first_frag_max + subsequent_frag_max, 2),     // Exactly 2 fragments
+			(first_frag_max + subsequent_frag_max + 1, 3), // Just over 2x, 3 fragments
+			(10000, calc_frags(10000)),                    // Large payload
 		];
 
 		for (payload_size, expected_fragments) in test_cases {
-			let fragment_count = (payload_size + max_fragment_size - 1) / max_fragment_size;
+			let fragment_count = calc_frags(payload_size);
 			assert_eq!(
 				fragment_count, expected_fragments,
 				"Payload {} bytes should require {} fragments",
@@ -411,19 +451,30 @@ mod tests {
 		const MAX_DATAGRAM_SIZE: usize = 1200;
 
 		let addr = TargetAddr::IPv4(Ipv4Addr::new(192, 168, 1, 1), 8080);
-		let header_overhead = 2 + 8 + calculate_addr_size(&addr);
-		let max_fragment_size = MAX_DATAGRAM_SIZE - header_overhead;
 
-		// Maximum allowable payload
-		let max_payload = max_fragment_size * (MAX_FRAGMENTS as usize);
-		let fragment_count = (max_payload + max_fragment_size - 1) / max_fragment_size;
+		// First fragment has full address
+		let first_frag_overhead = 2 + 8 + calculate_addr_size(&addr);
+		// Subsequent fragments use Address::None (1 byte)
+		let subsequent_frag_overhead = 2 + 8 + 1;
+
+		let first_frag_max = MAX_DATAGRAM_SIZE - first_frag_overhead;
+		let subsequent_frag_max = MAX_DATAGRAM_SIZE - subsequent_frag_overhead;
+
+		// Maximum allowable payload with 255 fragments
+		// First fragment + 254 subsequent fragments
+		let max_payload = first_frag_max + (subsequent_frag_max * (MAX_FRAGMENTS as usize - 1));
+
+		// Calculate fragment count
+		let remaining = max_payload - first_frag_max;
+		let fragment_count = 1 + remaining.div_ceil(subsequent_frag_max);
 
 		assert_eq!(fragment_count, 255, "Should be able to send 255 fragments");
 		assert!(fragment_count <= MAX_FRAGMENTS as usize, "Fragment count must not exceed 255");
 
 		// One byte over should exceed limit
 		let oversized_payload = max_payload + 1;
-		let oversized_count = (oversized_payload + max_fragment_size - 1) / max_fragment_size;
+		let oversized_remaining = oversized_payload - first_frag_max;
+		let oversized_count = 1 + oversized_remaining.div_ceil(subsequent_frag_max);
 		assert!(
 			oversized_count > MAX_FRAGMENTS as usize,
 			"Oversized payload should exceed fragment limit"

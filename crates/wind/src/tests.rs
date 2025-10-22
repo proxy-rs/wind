@@ -25,7 +25,7 @@
 //! This implementation follows RFC 1928 (SOCKS Protocol Version 5) and provides
 //! simple, high-level functions for testing SOCKS5 proxy functionality.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use eyre::Context;
 use tokio::{
@@ -51,8 +51,8 @@ use tokio::{
 /// ```no_run
 /// # tokio_test::block_on(async {
 /// wind::tests::test_socks5_tcp("127.0.0.1:1080", "example.com", 80)
-///     .await
-///     .unwrap();
+/// 	.await
+/// 	.unwrap();
 /// # });
 /// ```
 pub async fn test_socks5_tcp(proxy_addr: &str, target_host: &str, target_port: u16) -> eyre::Result<()> {
@@ -129,8 +129,8 @@ pub async fn test_socks5_tcp(proxy_addr: &str, target_host: &str, target_port: u
 /// ```no_run
 /// # tokio_test::block_on(async {
 /// wind::tests::test_socks5_udp("127.0.0.1:1080", "8.8.8.8", 53)
-///     .await
-///     .unwrap();
+/// 	.await
+/// 	.unwrap();
 /// # });
 /// ```
 pub async fn test_socks5_udp(proxy_addr: &str, target_host: &str, target_port: u16) -> eyre::Result<()> {
@@ -249,8 +249,8 @@ pub async fn test_socks5_udp(proxy_addr: &str, target_host: &str, target_port: u
 /// ```no_run
 /// # tokio_test::block_on(async {
 /// wind::tests::test_socks5_udp_large_packet("127.0.0.1:1080", "127.0.0.1", 7, 2000)
-///     .await
-///     .unwrap();
+/// 	.await
+/// 	.unwrap();
 /// # });
 /// ```
 pub async fn test_socks5_udp_large_packet(
@@ -275,10 +275,16 @@ pub async fn test_socks5_udp_large_packet(
 	const MAX_UDP_PAYLOAD_IPV4: usize = ETHERNET_MTU - IPV4_HEADER_SIZE - UDP_HEADER_SIZE;
 
 	if packet_size > MAX_UDP_PAYLOAD_IPV4 {
-		println!("⚠ Packet size ({} bytes) exceeds MTU payload limit ({} bytes)", packet_size, MAX_UDP_PAYLOAD_IPV4);
+		println!(
+			"⚠ Packet size ({} bytes) exceeds MTU payload limit ({} bytes)",
+			packet_size, MAX_UDP_PAYLOAD_IPV4
+		);
 		println!("  This will trigger IP fragmentation");
 	} else {
-		println!("ℹ Packet size ({} bytes) fits within MTU payload limit ({} bytes)", packet_size, MAX_UDP_PAYLOAD_IPV4);
+		println!(
+			"ℹ Packet size ({} bytes) fits within MTU payload limit ({} bytes)",
+			packet_size, MAX_UDP_PAYLOAD_IPV4
+		);
 	}
 
 	// Establish TCP connection to SOCKS5 proxy for UDP association
@@ -298,15 +304,15 @@ pub async fn test_socks5_udp_large_packet(
 
 	// Create a large test packet with a recognizable pattern
 	let mut large_packet = Vec::with_capacity(packet_size);
-	
+
 	// Add a header to identify the packet
 	large_packet.extend_from_slice(b"WIND_FRAG_TEST");
 	large_packet.extend_from_slice(&(packet_size as u32).to_be_bytes());
-	
+
 	// Fill the rest with a repeating pattern for easy verification
 	let pattern = b"0123456789ABCDEF";
 	let mut pattern_offset = 0;
-	
+
 	while large_packet.len() < packet_size {
 		let remaining = packet_size - large_packet.len();
 		let copy_len = std::cmp::min(remaining, pattern.len() - pattern_offset);
@@ -319,12 +325,12 @@ pub async fn test_socks5_udp_large_packet(
 	for byte in &large_packet {
 		checksum = checksum.wrapping_add(*byte as u32);
 	}
-	
+
 	// Replace last 4 bytes with checksum
 	if large_packet.len() >= 4 {
 		let checksum_bytes = checksum.to_be_bytes();
 		let len = large_packet.len();
-		large_packet[len-4..].copy_from_slice(&checksum_bytes);
+		large_packet[len - 4..].copy_from_slice(&checksum_bytes);
 	}
 
 	println!("✓ Large test packet prepared ({} bytes)", large_packet.len());
@@ -335,43 +341,51 @@ pub async fn test_socks5_udp_large_packet(
 	let start_time = std::time::Instant::now();
 	socket.send_to(&large_packet, (target_host, target_port)).await?;
 	let send_duration = start_time.elapsed();
-	println!("✓ Large packet sent through proxy ({:.2}ms)", send_duration.as_secs_f64() * 1000.0);
+	println!(
+		"✓ Large packet sent through proxy ({:.2}ms)",
+		send_duration.as_secs_f64() * 1000.0
+	);
 
 	// Receive UDP response with extended timeout for large packets
 	let mut buffer = vec![0u8; packet_size + 1024]; // Extra buffer for potential overhead
 	match tokio::time::timeout(Duration::from_secs(10), socket.recv_from(&mut buffer)).await {
 		Ok(Ok((len, from_addr))) => {
 			let receive_duration = start_time.elapsed();
-			println!("✓ Response received: {} bytes from {} ({:.2}ms total)", len, from_addr, receive_duration.as_secs_f64() * 1000.0);
+			println!(
+				"✓ Response received: {} bytes from {} ({:.2}ms total)",
+				len,
+				from_addr,
+				receive_duration.as_secs_f64() * 1000.0
+			);
 
 			// Verify the response
 			if len == large_packet.len() {
 				let received_data = &buffer[..len];
-				
+
 				// Check header
 				if received_data.starts_with(b"WIND_FRAG_TEST") {
 					println!("✓ Packet header verified");
 				} else {
 					println!("⚠ Packet header mismatch");
 				}
-				
+
 				// Verify checksum
 				if len >= 4 {
-					let received_checksum_bytes = &received_data[len-4..];
+					let received_checksum_bytes = &received_data[len - 4..];
 					let received_checksum = u32::from_be_bytes([
 						received_checksum_bytes[0],
-						received_checksum_bytes[1], 
+						received_checksum_bytes[1],
 						received_checksum_bytes[2],
-						received_checksum_bytes[3]
+						received_checksum_bytes[3],
 					]);
-					
+
 					// Calculate checksum of received data (excluding the checksum itself)
 					let mut calc_checksum: u32 = 0;
-					for byte in &received_data[..len-4] {
+					for byte in &received_data[..len - 4] {
 						calc_checksum = calc_checksum.wrapping_add(*byte as u32);
 					}
 					calc_checksum = calc_checksum.wrapping_add(checksum); // Add original checksum
-					
+
 					if received_checksum == checksum {
 						println!("✓ Packet integrity verified (checksum: 0x{:08X})", received_checksum);
 					} else {
@@ -381,23 +395,30 @@ pub async fn test_socks5_udp_large_packet(
 						println!("  Calculated checksum: 0x{:08X}", calc_checksum);
 					}
 				}
-				
+
 				// Compare entire packet
 				if received_data == large_packet {
 					println!("✓ Complete packet integrity verified - fragmentation handled correctly");
 				} else {
 					println!("⚠ Packet data mismatch detected");
-					
+
 					// Find first difference for debugging
 					for (i, (sent, recv)) in large_packet.iter().zip(received_data.iter()).enumerate() {
 						if sent != recv {
-							println!("  First difference at byte {}: sent 0x{:02X}, received 0x{:02X}", i, sent, recv);
+							println!(
+								"  First difference at byte {}: sent 0x{:02X}, received 0x{:02X}",
+								i, sent, recv
+							);
 							break;
 						}
 					}
 				}
 			} else {
-				println!("⚠ Response size mismatch: expected {} bytes, got {} bytes", large_packet.len(), len);
+				println!(
+					"⚠ Response size mismatch: expected {} bytes, got {} bytes",
+					large_packet.len(),
+					len
+				);
 			}
 		}
 		Ok(Err(e)) => {
@@ -472,15 +493,34 @@ mod unit_tests {
 	// Use `cargo test -- --ignored` to run ignored tests
 
 	#[tokio::test]
-	#[ignore = "requires running SOCKS5 proxy"]
+	#[ignore = "requires network connection and TUIC server"]
 	async fn test_tcp_through_proxy() {
-		let result = test_socks5_tcp("127.0.0.1:6666", "example.com", 80).await;
+		// Start proxy server on a test port
+		let test_port = 16666;
+		let (ctx, _server_handle) = start_test_proxy(test_port).await.expect("Failed to start proxy");
+		
+		let result = test_socks5_tcp(&format!("127.0.0.1:{}", test_port), "example.com", 80).await;
+		
+		// Cleanup
+		ctx.token.cancel();
+		let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
+		
 		assert!(result.is_ok(), "TCP proxy test failed: {:?}", result.err());
 	}
 
 	#[tokio::test]
+	#[ignore = "requires network connection and TUIC server"]
 	async fn test_udp_through_proxy() {
-		let result = test_socks5_udp("127.0.0.1:6666", "8.8.8.8", 53).await;
+		// Start proxy server on a test port
+		let test_port = 16667;
+		let (ctx, _server_handle) = start_test_proxy(test_port).await.expect("Failed to start proxy");
+		
+		let result = test_socks5_udp(&format!("127.0.0.1:{}", test_port), "8.8.8.8", 53).await;
+		
+		// Cleanup
+		ctx.token.cancel();
+		let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
+		
 		match &result {
 			Ok(_) => println!("✓ UDP proxy test passed successfully"),
 			Err(e) => {
@@ -498,41 +538,51 @@ mod unit_tests {
 	}
 
 	#[tokio::test]
+	#[ignore = "requires network connection and TUIC server"]
 	async fn test_udp_large_packet_through_proxy() {
+		use std::sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		};
+
 		use tokio::net::UdpSocket;
-		use std::sync::Arc;
-		use std::sync::atomic::{AtomicBool, Ordering};
-		
+
 		// Start with a smaller packet to test basic functionality first
 		let test_packet_size = 512; // Start small to ensure basic UDP works
-		
+
 		println!("Testing UDP functionality with {} byte packet", test_packet_size);
-		
+
+		// Start proxy server on a test port
+		let test_port = 16668;
+		let (ctx, _server_handle) = start_test_proxy(test_port).await.expect("Failed to start proxy");
+
 		// Start a UDP echo server in the background
 		let echo_server_running = Arc::new(AtomicBool::new(true));
 		let echo_server_running_clone = echo_server_running.clone();
-		
+
 		// Find an available port for the echo server
-		let echo_socket = UdpSocket::bind("127.0.0.1:0").await.expect("Failed to bind echo server socket");
+		let echo_socket = UdpSocket::bind("127.0.0.1:0")
+			.await
+			.expect("Failed to bind echo server socket");
 		let echo_addr = echo_socket.local_addr().expect("Failed to get echo server address");
 		let echo_port = echo_addr.port();
-		
+
 		println!("✓ UDP Echo Server started on port {}", echo_port);
-		
+
 		// Spawn the echo server task
 		let echo_task = tokio::spawn(async move {
 			let mut buffer = vec![0u8; 65536]; // Large buffer for fragmented packets
 			let mut packet_count = 0;
-			
+
 			while echo_server_running_clone.load(Ordering::Relaxed) {
-				match tokio::time::timeout(
-					std::time::Duration::from_millis(100), 
-					echo_socket.recv_from(&mut buffer)
-				).await {
+				match tokio::time::timeout(std::time::Duration::from_millis(100), echo_socket.recv_from(&mut buffer)).await {
 					Ok(Ok((len, from_addr))) => {
 						packet_count += 1;
-						println!("  Echo server received packet #{}: {} bytes from {}", packet_count, len, from_addr);
-						
+						println!(
+							"  Echo server received packet #{}: {} bytes from {}",
+							packet_count, len, from_addr
+						);
+
 						// Echo the packet back
 						if let Err(e) = echo_socket.send_to(&buffer[..len], from_addr).await {
 							println!("  Echo server send error: {}", e);
@@ -550,13 +600,13 @@ mod unit_tests {
 					}
 				}
 			}
-			
+
 			println!("✓ UDP Echo Server stopped after handling {} packets", packet_count);
 		});
-		
+
 		// Give the echo server a moment to start
 		tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-		
+
 		// First, test the echo server directly (without proxy) to ensure it works
 		println!("\n=== Testing echo server directly (no proxy) ===");
 		let direct_test_result = test_direct_udp_with_echo_server("127.0.0.1", echo_port, 512).await;
@@ -570,29 +620,31 @@ mod unit_tests {
 				panic!("Echo server is not working correctly");
 			}
 		}
-		
+
 		// Test small packet through proxy
 		println!("\n=== Testing small packet through proxy (512 bytes) ===");
 		let result_small = test_socks5_udp_large_packet(
-			"127.0.0.1:6666", 
-			"127.0.0.1",      // Use localhost for echo test
-			echo_port,        // Use the dynamically allocated port
-			512
-		).await;
-		
+			&format!("127.0.0.1:{}", test_port),
+			"127.0.0.1", // Use localhost for echo test
+			echo_port,   // Use the dynamically allocated port
+			512,
+		)
+		.await;
+
 		match &result_small {
 			Ok(_) => {
 				println!("✓ Small packet test passed - now testing large packet");
-				
+
 				// If small packet works, try the large packet
 				println!("\n=== Testing large packet through proxy (2000 bytes) ===");
 				let result_large = test_socks5_udp_large_packet(
-					"127.0.0.1:6666", 
+					&format!("127.0.0.1:{}", test_port),
 					"127.0.0.1",
 					echo_port,
-					2000  // This should trigger fragmentation
-				).await;
-				
+					2000, // This should trigger fragmentation
+				)
+				.await;
+
 				match &result_large {
 					Ok(_) => println!("✓ UDP large packet test passed successfully"),
 					Err(e) => {
@@ -619,80 +671,90 @@ mod unit_tests {
 				}
 			}
 		}
-		
+
 		// Signal the echo server to stop
 		echo_server_running.store(false, Ordering::Relaxed);
-		
+
 		// Wait for the echo server to finish (with timeout)
 		match tokio::time::timeout(std::time::Duration::from_secs(2), echo_task).await {
 			Ok(_) => println!("✓ Echo server stopped successfully"),
 			Err(_) => println!("⚠ Echo server stop timeout"),
 		}
+
+		// Cleanup proxy server
+		ctx.token.cancel();
+		let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
 	}
 
 	/// Helper function to test UDP echo server directly without proxy
 	async fn test_direct_udp_with_echo_server(host: &str, port: u16, packet_size: usize) -> eyre::Result<()> {
 		let test_socket = UdpSocket::bind("127.0.0.1:0").await?;
-		
+
 		// Create test packet
 		let mut test_packet = Vec::with_capacity(packet_size);
 		test_packet.extend_from_slice(b"TEST_DIRECT");
 		test_packet.extend_from_slice(&(packet_size as u32).to_be_bytes());
-		
+
 		while test_packet.len() < packet_size {
 			let _remaining = packet_size - test_packet.len();
 			let byte = (test_packet.len() % 256) as u8;
 			test_packet.push(byte);
 		}
-		
+
 		// Send packet
 		test_socket.send_to(&test_packet, (host, port)).await?;
-		
+
 		// Receive response
 		let mut buffer = vec![0u8; packet_size + 100];
-		let (len, _) = tokio::time::timeout(
-			std::time::Duration::from_secs(2),
-			test_socket.recv_from(&mut buffer)
-		).await??;
-		
+		let (len, _) = tokio::time::timeout(std::time::Duration::from_secs(2), test_socket.recv_from(&mut buffer)).await??;
+
 		if len == test_packet.len() && buffer[..len] == test_packet {
 			Ok(())
 		} else {
-			Err(eyre::eyre!("Echo response mismatch: expected {} bytes, got {} bytes", test_packet.len(), len))
+			Err(eyre::eyre!(
+				"Echo response mismatch: expected {} bytes, got {} bytes",
+				test_packet.len(),
+				len
+			))
 		}
 	}
 
 	#[tokio::test]
 	async fn test_udp_fragmentation_demonstration() {
+		use std::sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		};
+
 		use tokio::net::UdpSocket;
-		use std::sync::Arc;
-		use std::sync::atomic::{AtomicBool, Ordering};
-		
+
 		println!("=== UDP Fragmentation Demonstration ===");
 		println!("This test demonstrates UDP packet fragmentation without requiring a working SOCKS5 proxy");
-		
+
 		// Start a UDP echo server
 		let echo_server_running = Arc::new(AtomicBool::new(true));
 		let echo_server_running_clone = echo_server_running.clone();
-		
-		let echo_socket = UdpSocket::bind("127.0.0.1:0").await.expect("Failed to bind echo server socket");
+
+		let echo_socket = UdpSocket::bind("127.0.0.1:0")
+			.await
+			.expect("Failed to bind echo server socket");
 		let echo_addr = echo_socket.local_addr().expect("Failed to get echo server address");
 		let echo_port = echo_addr.port();
-		
+
 		println!("✓ UDP Echo Server started on port {}", echo_port);
-		
+
 		let echo_task = tokio::spawn(async move {
 			let mut buffer = vec![0u8; 65536];
 			let mut packet_count = 0;
-			
+
 			while echo_server_running_clone.load(Ordering::Relaxed) {
-				match tokio::time::timeout(
-					std::time::Duration::from_millis(100), 
-					echo_socket.recv_from(&mut buffer)
-				).await {
+				match tokio::time::timeout(std::time::Duration::from_millis(100), echo_socket.recv_from(&mut buffer)).await {
 					Ok(Ok((len, from_addr))) => {
 						packet_count += 1;
-						println!("  Echo server received packet #{}: {} bytes from {}", packet_count, len, from_addr);
+						println!(
+							"  Echo server received packet #{}: {} bytes from {}",
+							packet_count, len, from_addr
+						);
 						if let Err(e) = echo_socket.send_to(&buffer[..len], from_addr).await {
 							println!("  Echo server send error: {}", e);
 						} else {
@@ -703,37 +765,43 @@ mod unit_tests {
 					Err(_) => continue,
 				}
 			}
-			
+
 			println!("✓ UDP Echo Server stopped after handling {} packets", packet_count);
 		});
-		
+
 		tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-		
+
 		// Test different packet sizes to demonstrate fragmentation behavior
 		let test_sizes = vec![
-			512,   // Small packet
-			1400,  // Just under MTU
-			1472,  // Max UDP payload for IPv4
-			1500,  // Standard MTU (will cause fragmentation)
-			2000,  // Large packet requiring fragmentation
-			4000,  // Very large packet
+			512,  // Small packet
+			1400, // Just under MTU
+			1472, // Max UDP payload for IPv4
+			1500, // Standard MTU (will cause fragmentation)
+			2000, // Large packet requiring fragmentation
+			4000, // Very large packet
 		];
-		
+
 		for size in test_sizes {
 			println!("\n--- Testing packet size: {} bytes ---", size);
-			
+
 			const IPV4_HEADER_SIZE: usize = 20;
 			const UDP_HEADER_SIZE: usize = 8;
 			const ETHERNET_MTU: usize = 1500;
 			const MAX_UDP_PAYLOAD_IPV4: usize = ETHERNET_MTU - IPV4_HEADER_SIZE - UDP_HEADER_SIZE;
-			
+
 			if size > MAX_UDP_PAYLOAD_IPV4 {
-				println!("⚠ Packet size ({} bytes) exceeds MTU payload limit ({} bytes)", size, MAX_UDP_PAYLOAD_IPV4);
+				println!(
+					"⚠ Packet size ({} bytes) exceeds MTU payload limit ({} bytes)",
+					size, MAX_UDP_PAYLOAD_IPV4
+				);
 				println!("  This will trigger IP fragmentation");
 			} else {
-				println!("ℹ Packet size ({} bytes) fits within MTU payload limit ({} bytes)", size, MAX_UDP_PAYLOAD_IPV4);
+				println!(
+					"ℹ Packet size ({} bytes) fits within MTU payload limit ({} bytes)",
+					size, MAX_UDP_PAYLOAD_IPV4
+				);
 			}
-			
+
 			// Test direct UDP (no proxy) to demonstrate that large packets work
 			match test_direct_udp_with_echo_server("127.0.0.1", echo_port, size).await {
 				Ok(_) => {
@@ -750,60 +818,70 @@ mod unit_tests {
 				}
 			}
 		}
-		
+
 		println!("\n=== Summary ===");
 		println!("✓ UDP fragmentation testing infrastructure is ready");
 		println!("✓ Echo server can handle packets of various sizes including large ones");
 		println!("⚠ SOCKS5 proxy UDP implementation needs to be fixed before full testing");
 		println!("  Once the proxy UDP issues are resolved, the test_udp_large_packet_through_proxy");
 		println!("  function will be able to test UDP fragmentation through the proxy");
-		
+
 		// Signal the echo server to stop
 		echo_server_running.store(false, Ordering::Relaxed);
 		let _ = tokio::time::timeout(std::time::Duration::from_secs(2), echo_task).await;
 	}
 
 	#[tokio::test]
+	#[ignore = "requires network connection and TUIC server"]
 	async fn test_udp_multiple_mtu_sizes() {
+		use std::sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		};
+
 		use tokio::net::UdpSocket;
-		use std::sync::Arc;
-		use std::sync::atomic::{AtomicBool, Ordering};
-		
+
+		// Start proxy server on a test port
+		let test_port = 16669;
+		let (ctx, _server_handle) = start_test_proxy(test_port).await.expect("Failed to start proxy");
+
 		// Test multiple packet sizes around MTU boundaries
 		let test_sizes = vec![
-			512,   // Small packet
-			1400,  // Just under MTU
-			1472,  // Max UDP payload for IPv4
-			1500,  // Standard MTU
-			2000,  // Over MTU - requires fragmentation
-			4000,  // Much larger packet
+			512,  // Small packet
+			1400, // Just under MTU
+			1472, // Max UDP payload for IPv4
+			1500, // Standard MTU
+			2000, // Over MTU - requires fragmentation
+			4000, // Much larger packet
 		];
 
 		// Start a UDP echo server in the background
 		let echo_server_running = Arc::new(AtomicBool::new(true));
 		let echo_server_running_clone = echo_server_running.clone();
-		
+
 		// Find an available port for the echo server
-		let echo_socket = UdpSocket::bind("127.0.0.1:0").await.expect("Failed to bind echo server socket");
+		let echo_socket = UdpSocket::bind("127.0.0.1:0")
+			.await
+			.expect("Failed to bind echo server socket");
 		let echo_addr = echo_socket.local_addr().expect("Failed to get echo server address");
 		let echo_port = echo_addr.port();
-		
+
 		println!("✓ UDP Echo Server started on port {} for MTU size testing", echo_port);
-		
+
 		// Spawn the echo server task
 		let echo_task = tokio::spawn(async move {
 			let mut buffer = vec![0u8; 65536]; // Large buffer for fragmented packets
 			let mut packet_count = 0;
-			
+
 			while echo_server_running_clone.load(Ordering::Relaxed) {
-				match tokio::time::timeout(
-					std::time::Duration::from_millis(100), 
-					echo_socket.recv_from(&mut buffer)
-				).await {
+				match tokio::time::timeout(std::time::Duration::from_millis(100), echo_socket.recv_from(&mut buffer)).await {
 					Ok(Ok((len, from_addr))) => {
 						packet_count += 1;
-						println!("    Echo server received packet #{}: {} bytes from {}", packet_count, len, from_addr);
-						
+						println!(
+							"    Echo server received packet #{}: {} bytes from {}",
+							packet_count, len, from_addr
+						);
+
 						// Echo the packet back
 						if let Err(e) = echo_socket.send_to(&buffer[..len], from_addr).await {
 							println!("    Echo server send error: {}", e);
@@ -819,23 +897,24 @@ mod unit_tests {
 					}
 				}
 			}
-			
+
 			println!("✓ UDP Echo Server stopped after handling {} packets", packet_count);
 		});
-		
+
 		// Give the echo server a moment to start
 		tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
 		for size in test_sizes {
 			println!("\n--- Testing packet size: {} bytes ---", size);
-			
+
 			let result = test_socks5_udp_large_packet(
-				"127.0.0.1:6666", 
+				&format!("127.0.0.1:{}", test_port),
 				"127.0.0.1",
-				echo_port,  // Use the dynamically allocated port
-				size
-			).await;
-			
+				echo_port, // Use the dynamically allocated port
+				size,
+			)
+			.await;
+
 			match &result {
 				Ok(_) => println!("✓ Packet size {} bytes: SUCCESS", size),
 				Err(e) => {
@@ -845,6 +924,9 @@ mod unit_tests {
 						// Signal the echo server to stop
 						echo_server_running.store(false, Ordering::Relaxed);
 						let _ = tokio::time::timeout(std::time::Duration::from_secs(1), echo_task).await;
+						// Cleanup proxy server
+						ctx.token.cancel();
+						let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
 						return;
 					}
 					println!("⚠ Packet size {} bytes: FAILED - {}", size, e);
@@ -852,15 +934,19 @@ mod unit_tests {
 				}
 			}
 		}
-		
+
 		// Signal the echo server to stop
 		echo_server_running.store(false, Ordering::Relaxed);
-		
+
 		// Wait for the echo server to finish (with timeout)
 		match tokio::time::timeout(std::time::Duration::from_secs(2), echo_task).await {
 			Ok(_) => println!("✓ Echo server stopped successfully"),
 			Err(_) => println!("⚠ Echo server stop timeout"),
 		}
+
+		// Cleanup proxy server
+		ctx.token.cancel();
+		let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
 	}
 
 	#[tokio::test]
@@ -876,4 +962,51 @@ mod unit_tests {
 		let result = test_direct_udp("8.8.8.8", 53).await;
 		assert!(result.is_ok(), "Direct UDP connection failed: {:?}", result.err());
 	}
+}
+
+/// Helper function to start the proxy server for testing
+/// Returns the port number allocated for the proxy
+#[allow(dead_code)]
+async fn start_test_proxy(socks_port: u16) -> eyre::Result<(Arc<wind_core::AppContext>, tokio::task::JoinHandle<()>)> {
+	use wind_socks::inbound::SocksInboundOpt;
+	use wind_tuic::outbound::TuicOutboundOpts;
+	
+	let ctx = Arc::new(wind_core::AppContext::default());
+	
+	// Create test configuration with dynamic port
+	let config = crate::conf::runtime::Config {
+		socks_opt: SocksInboundOpt {
+			listen_addr: format!("127.0.0.1:{}", socks_port).parse()?,
+			public_addr: None,
+			auth: wind_socks::inbound::AuthMode::NoAuth,
+			skip_auth: false,
+			allow_udp: true,
+		},
+		tuic_opt: TuicOutboundOpts {
+			peer_addr: format!("127.0.0.1:9443").parse().unwrap(),
+			sni: "localhost".to_string(),
+			auth: (
+				"c1e6dbe2-f417-4890-994c-9ee15b926597".parse().unwrap(),
+				"test_passwd".as_bytes().to_vec().into(),
+			),
+			zero_rtt_handshake: false,
+			heartbeat: Duration::from_secs(10),
+			gc_interval: Duration::from_secs(20),
+			gc_lifetime: Duration::from_secs(20),
+			skip_cert_verify: true,
+			alpn: vec!["h3".to_string()],
+		},
+	};
+
+	let ctx_clone = ctx.clone();
+	let server_handle = tokio::spawn(async move {
+		if let Err(e) = crate::run(ctx_clone.clone(), config).await {
+			eprintln!("Server error: {}", e);
+		}
+	});
+	
+	// Wait a bit for server to start
+	tokio::time::sleep(Duration::from_millis(500)).await;
+	
+	Ok((ctx, server_handle))
 }

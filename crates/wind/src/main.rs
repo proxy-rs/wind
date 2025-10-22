@@ -1,7 +1,6 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use clap::Parser as _;
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::Level;
 use wind_core::{
 	AbstractOutbound, AppContext, InboundCallback, inbound::AbstractInbound, info, tcp::AbstractTcpStream, types::TargetAddr,
@@ -15,7 +14,10 @@ pub mod tests;
 
 
 mod util;
-use crate::{cli::Cli, conf::persistent::PersistentConfig};
+use crate::{
+	cli::Cli,
+	conf::{persistent::PersistentConfig, runtime::Config},
+};
 
 mod cli;
 mod conf;
@@ -125,14 +127,21 @@ async fn main() -> eyre::Result<()> {
 
 	// Convert to runtime config
 	let runtime_config = conf::runtime::Config::from_persist(persistent_config);
+	let ctx = Arc::new(AppContext::default());
+	run(ctx.clone(), runtime_config).await?;
+	tokio::signal::ctrl_c().await?;
+	info!(target: "[MAIN]", "Ctrl-C received, shutting down");
+	ctx.token.cancel();
+	ctx.tasks.close();
+	tokio::time::timeout(Duration::from_secs(10), ctx.tasks.wait()).await?;
 
-	let ctx = Arc::new(AppContext {
-		tasks: TaskTracker::new(),
-		token: CancellationToken::new(),
-	});
+	info!(target: "[MAIN]", "Shutdown complete");
+	Ok(())
+}
 
-	let outbound = TuicOutbound::new(ctx.clone(), runtime_config.tuic_opt).await?;
-	let inbound = Arc::new(SocksInbound::new(runtime_config.socks_opt, ctx.token.child_token()).await);
+pub async fn run(ctx: Arc<AppContext>, config: Config) -> eyre::Result<()> {
+	let outbound = TuicOutbound::new(ctx.clone(), config.tuic_opt).await?;
+	let inbound = Arc::new(SocksInbound::new(config.socks_opt, ctx.token.child_token()).await);
 	let outbound = Arc::new(outbound);
 	let manager = Manager { inbound, outbound };
 	let manager = Arc::new(manager);
@@ -148,12 +157,5 @@ async fn main() -> eyre::Result<()> {
 		manager_clone.inbound.listen(manager.deref()).await?;
 		eyre::Ok(())
 	});
-	tokio::signal::ctrl_c().await?;
-	info!(target: "[MAIN]", "Ctrl-C received, shutting down");
-	ctx.token.cancel();
-	ctx.tasks.close();
-	tokio::time::timeout(Duration::from_secs(10), ctx.tasks.wait()).await?;
-
-	info!(target: "[MAIN]", "Shutdown complete");
 	Ok(())
 }
