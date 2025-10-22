@@ -15,8 +15,6 @@ wind-tuic = { version = "0.1.1", path = "../wind-tuic"}
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
-fast-socks5 = "1.0.0-rc.0"
-
 tracing = "0.1"
 
 clap = { version = "4", features = ["derive"] }

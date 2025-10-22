@@ -2532,7 +2532,6 @@ dependencies = [
  "const-str",
  "educe",
  "eyre",
- "fast-socks5",
  "figment",
  "humantime-serde",
  "serde",
@@ -2593,11 +2592,14 @@ version = "0.1.1"
 dependencies = [
  "criterion",
  "eyre",
+ "fast-socks5",
  "futures-util",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "wind-core",
+ "wind-socks",
+ "wind-tuic",
 ]
 
 [[package]]

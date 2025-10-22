@@ -9,10 +9,6 @@ use wind_core::{
 use wind_socks::inbound::SocksInbound;
 use wind_tuic::outbound::TuicOutbound;
 
-// Testing module providing SOCKS5 proxy testing functionality
-pub mod tests;
-
-
 mod util;
 use crate::{
 	cli::Cli,
@@ -117,7 +113,7 @@ async fn main() -> eyre::Result<()> {
 			return Ok(());
 		}
 		None => {
-			// 继续正常启动
+
 		}
 	}
 

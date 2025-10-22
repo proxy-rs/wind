@@ -1,3 +1,5 @@
+pub mod socks5;
+
 pub mod benches {
 	use std::sync::Arc;
 
