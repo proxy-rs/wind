@@ -90,7 +90,7 @@ mod test {
 	use tokio_stream::StreamExt as _;
 	use tokio_util::codec::{FramedRead, FramedWrite};
 
-	use crate::proto::{CmdType, Header, HeaderCodec, ProtoError, v5::VER};
+	use crate::proto::{CmdType, Header, HeaderCodec, ProtoError, VER};
 
 	/// Usual test
 	#[tokio::test]

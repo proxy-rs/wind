@@ -1,30 +1,3 @@
-//! SOCKS5 Proxy Testing Module
-//!
-//! This module provides utility functions for testing SOCKS5 proxy server TCP
-//! and UDP functionality.
-//!
-//! # Features
-//!
-//! - **TCP connection testing** - Tests SOCKS5 TCP CONNECT command using
-//!   fast-socks5
-//! - **UDP connection testing** - Tests SOCKS5 UDP ASSOCIATE command using
-//!   fast-socks5
-//! - **Direct connection testing** - Baseline tests without proxy for
-//!   comparison
-//!
-//! # Implementation
-//!
-//! Both TCP and UDP implementations use the `fast-socks5` library for clean and
-//! reliable SOCKS5 protocol handling. The library automatically manages:
-//!
-//! - SOCKS5 authentication handshake
-//! - Command negotiation (CONNECT for TCP, UDP ASSOCIATE for UDP)
-//! - Packet encapsulation/decapsulation
-//! - Error handling for all SOCKS5 error codes
-//!
-//! This implementation follows RFC 1928 (SOCKS Protocol Version 5) and provides
-//! simple, high-level functions for testing SOCKS5 proxy functionality.
-
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use eyre::Context;
@@ -108,33 +81,6 @@ pub async fn test_socks5_tcp(proxy_addr: &str, target_host: &str, target_port: u
 	Ok(())
 }
 
-/// Test UDP requests through SOCKS5 proxy (DNS query example)
-///
-/// This function establishes a UDP association through a SOCKS5 proxy using the
-/// fast-socks5 library and sends a DNS query packet to test UDP functionality.
-///
-/// # Arguments
-/// * `proxy_addr` - SOCKS5 proxy address, e.g., "127.0.0.1:1080"
-/// * `target_host` - Target host (DNS server), e.g., "8.8.8.8"
-/// * `target_port` - Target port (usually 53), e.g., 53
-///
-/// # Note
-/// Requires the SOCKS5 server to support the UDP ASSOCIATE command (RFC 1928
-/// Section 7)
-///
-/// # Errors
-/// Returns an error when the proxy doesn't support UDP, connection fails, or
-/// times out
-///
-/// # Example
-/// ```no_run
-/// # #[tokio::main]
-/// # async fn main() {
-/// wind_test::socks5::test_socks5_udp("127.0.0.1:1080", "8.8.8.8", 53)
-/// 	.await
-/// 	.unwrap();
-/// # }
-/// ```
 pub async fn test_socks5_udp(proxy_addr: &str, target_host: &str, target_port: u16) -> eyre::Result<()> {
 	use std::time::Duration;
 
@@ -225,37 +171,6 @@ pub async fn test_socks5_udp(proxy_addr: &str, target_host: &str, target_port: u
 	Ok(())
 }
 
-/// Test UDP packets that exceed MTU to verify fragmentation handling
-///
-/// This function tests the SOCKS5 proxy's ability to handle large UDP packets
-/// that exceed the typical MTU size (1500 bytes). This is important for
-/// testing UDP fragmentation and reassembly capabilities.
-///
-/// # Arguments
-/// * `proxy_addr` - SOCKS5 proxy address, e.g., "127.0.0.1:1080"
-/// * `target_host` - Target host (echo server), e.g., "127.0.0.1"
-/// * `target_port` - Target port, e.g., 7 (echo service)
-/// * `packet_size` - Size of the test packet in bytes (should exceed MTU)
-///
-/// # Note
-/// - Standard Ethernet MTU is 1500 bytes
-/// - IP header: 20 bytes (IPv4) or 40 bytes (IPv6)
-/// - UDP header: 8 bytes
-/// - Available UDP payload: ~1472 bytes (IPv4) or ~1452 bytes (IPv6)
-/// - Test packets larger than this will trigger IP fragmentation
-///
-/// # Errors
-/// Returns an error when fragmentation is not supported or packets are dropped
-///
-/// # Example
-/// ```no_run
-/// # #[tokio::main]
-/// # async fn main() {
-/// wind_test::socks5::test_socks5_udp_large_packet("127.0.0.1:1080", "127.0.0.1", 7, 2000)
-/// 	.await
-/// 	.unwrap();
-/// # }
-/// ```
 pub async fn test_socks5_udp_large_packet(
 	proxy_addr: &str,
 	target_host: &str,
@@ -491,9 +406,6 @@ pub async fn test_direct_udp(target_host: &str, target_port: u16) -> eyre::Resul
 #[cfg(test)]
 mod unit_tests {
 	use super::*;
-
-	// Note: These tests require an actual SOCKS5 proxy server to be running
-	// Use `cargo test -- --ignored` to run ignored tests
 
 	#[tokio::test]
 	#[ignore = "requires network connection and TUIC server"]
