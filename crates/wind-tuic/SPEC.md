@@ -699,7 +699,6 @@ Implementers SHOULD verify their implementation handles:
 - [ ] Saturating arithmetic to prevent underflow
 - [ ] Authentication validation and connection termination
 - [ ] Resource limits and DoS mitigation
-- [ ] Error logging for diagnostics
 
 ---
 

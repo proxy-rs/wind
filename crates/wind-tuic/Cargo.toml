@@ -59,6 +59,7 @@ rustls-platform-verifier = { version = "0.6", default-features = false }
 tracing = "0.1"
 
 [dev-dependencies]
-tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "io-util"] }
 eyre = "0.6"
 color-eyre = { version = "0.6", default-features = false }
+rcgen = "0.13"

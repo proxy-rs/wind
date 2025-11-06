@@ -19,6 +19,7 @@ mod cli;
 mod conf;
 mod log;
 
+#[derive(Clone)]
 struct Manager {
 	inbound:  Arc<SocksInbound>,
 	outbound: Arc<TuicOutbound>,

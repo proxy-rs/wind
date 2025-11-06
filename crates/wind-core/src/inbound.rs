@@ -7,7 +7,7 @@ pub trait AbstractInbound {
 	fn listen(&self, cb: &impl InboundCallback) -> impl FutResult<()>;
 }
 
-pub trait InboundCallback: Send + Sync {
+pub trait InboundCallback: Send + Sync + Clone + 'static {
 	fn handle_tcpstream(&self, target_addr: TargetAddr, stream: impl AbstractTcpStream) -> impl FutResult<()>;
 	fn handle_udpsocket(&self, socket: impl AbstractUdpSocket + 'static) -> impl FutResult<()>;
 }
