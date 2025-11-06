@@ -93,7 +93,7 @@ mod test {
 	use crate::proto::{CmdType, Header, HeaderCodec, ProtoError, VER};
 
 	/// Usual test
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_header_1() -> eyre::Result<()> {
 		let header = Header {
 			version: VER,
@@ -114,7 +114,7 @@ mod test {
 		Ok(())
 	}
 	/// Data not fully arrive
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_header_2() -> eyre::Result<()> {
 		let header = Header {
 			version: VER,

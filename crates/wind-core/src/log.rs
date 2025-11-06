@@ -59,15 +59,17 @@ macro_rules! error {
 }
 
 /// Extract the crate name from the module path at compile time.
-/// 
-/// This macro parses `module_path!()` to extract the crate name (the part before the first `::`)
-/// using only const operations, ensuring compile-time evaluation.
-/// 
+///
+/// This macro parses `module_path!()` to extract the crate name (the part
+/// before the first `::`) using only const operations, ensuring compile-time
+/// evaluation.
+///
 /// # Implementation Notes
-/// 
-/// The original implementation had potential issues with the unsafe UTF-8 conversion.
-/// This version is safer and clearer while maintaining compile-time evaluation.
-/// 
+///
+/// The original implementation had potential issues with the unsafe UTF-8
+/// conversion. This version is safer and clearer while maintaining compile-time
+/// evaluation.
+///
 /// Reference: https://github.com/Gadiguibou/current_crate_name/blob/master/src/lib.rs
 #[macro_export]
 macro_rules! extract_crate_name {
@@ -76,37 +78,31 @@ macro_rules! extract_crate_name {
 		const CRATE_NAME: &str = {
 			let bytes = MODULE_PATH.as_bytes();
 			let mut end_index = 0;
-			
+
 			// Find the first '::' or end of string
 			while end_index < bytes.len() {
 				// Check for ':' followed by another ':'
-				if end_index + 1 < bytes.len() 
-					&& bytes[end_index] == b':' 
-					&& bytes[end_index + 1] == b':' 
-				{
+				if end_index + 1 < bytes.len() && bytes[end_index] == b':' && bytes[end_index + 1] == b':' {
 					break;
 				}
 				end_index += 1;
 			}
-			
+
 			// Create a slice with the crate name
-			// SAFETY: We're slicing at character boundaries (either at '::' which are ASCII,
-			// or at the end of the string). Since the original string is valid UTF-8 and
-			// we only slice at ASCII character boundaries, the result is also valid UTF-8.
+			// SAFETY: We're slicing at character boundaries (either at '::' which are
+			// ASCII, or at the end of the string). Since the original string is valid
+			// UTF-8 and we only slice at ASCII character boundaries, the result is also
+			// valid UTF-8.
 			const fn slice_str(s: &str, end: usize) -> &str {
 				let bytes = s.as_bytes();
 				// This is safe because we know the input is valid UTF-8 and we slice at
 				// ASCII boundaries (either at '::' or string end)
-				unsafe { 
-					core::str::from_utf8_unchecked(
-						core::slice::from_raw_parts(bytes.as_ptr(), end)
-					)
-				}
+				unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(bytes.as_ptr(), end)) }
 			}
-			
+
 			slice_str(MODULE_PATH, end_index)
 		};
-		
+
 		CRATE_NAME
 	}};
 }
@@ -119,7 +115,7 @@ mod tests {
 		let crate_name = extract_crate_name!();
 		assert_eq!(crate_name, "wind_core");
 	}
-	
+
 	#[test]
 	fn test_extract_crate_name_with_logging() {
 		// Test that the macro works in logging context
@@ -127,7 +123,7 @@ mod tests {
 		assert!(!crate_name.is_empty());
 		assert!(!crate_name.contains("::"));
 	}
-	
+
 	mod nested {
 		#[test]
 		fn test_extract_crate_name_nested() {
@@ -136,7 +132,7 @@ mod tests {
 			assert_eq!(crate_name, "wind_core");
 		}
 	}
-	
+
 	mod deeply {
 		pub mod nested {
 			pub mod module {
@@ -149,17 +145,17 @@ mod tests {
 			}
 		}
 	}
-	
+
 	#[test]
 	fn test_crate_name_is_valid_identifier() {
 		let crate_name = extract_crate_name!();
-		
+
 		// Crate name should not be empty
 		assert!(!crate_name.is_empty());
-		
+
 		// Crate name should not contain '::'
 		assert!(!crate_name.contains("::"));
-		
+
 		// Crate name should only contain valid identifier characters
 		assert!(crate_name.chars().all(|c| c.is_alphanumeric() || c == '_'));
 	}

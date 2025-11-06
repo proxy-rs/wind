@@ -128,7 +128,7 @@ mod test {
 	use crate::proto::{CmdCodec, ProtoError};
 
 	/// Usual test
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_cmd_1() -> eyre::Result<()> {
 		let vars = vec![
 			Command::Auth {
@@ -169,7 +169,7 @@ mod test {
 		Ok(())
 	}
 	/// Data not fully arrive
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_cmd_2() -> eyre::Result<()> {
 		let vars = vec![
 			Command::Auth {

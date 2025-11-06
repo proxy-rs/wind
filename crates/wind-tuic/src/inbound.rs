@@ -1,11 +1,13 @@
 //! TUIC inbound server implementation
 //!
-//! This module implements a TUIC (TCP/UDP over QUIC) server that can accept incoming
-//! QUIC connections and handle TCP and UDP traffic relaying.
+//! This module implements a TUIC (TCP/UDP over QUIC) server that can accept
+//! incoming QUIC connections and handle TCP and UDP traffic relaying.
 use std::{
 	collections::HashMap,
 	net::SocketAddr,
+	pin::Pin,
 	sync::Arc,
+	task::{Context, Poll},
 	time::Duration,
 };
 
@@ -25,15 +27,13 @@ use tokio_util::{codec::Decoder, sync::CancellationToken};
 use uuid::Uuid;
 use wind_core::{AbstractInbound, AppContext, InboundCallback, error, info, types::TargetAddr, warn};
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 use crate::{
 	BindSocketSnafu, Error, IoSnafu, QuicConnectionSnafu, TlsSnafu,
 	proto::{Address, AddressCodec, BytesRemainingSnafu, CmdCodec, CmdType, Command, HeaderCodec},
 };
 
-/// Wrapper to combine quinn's SendStream and RecvStream into a single bidirectional stream
+/// Wrapper to combine quinn's SendStream and RecvStream into a single
+/// bidirectional stream
 struct QuicBidiStream {
 	send: quinn::SendStream,
 	recv: quinn::RecvStream,
@@ -50,27 +50,30 @@ impl AsyncRead for QuicBidiStream {
 }
 
 impl AsyncWrite for QuicBidiStream {
-	fn poll_write(
-		mut self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
-		buf: &[u8],
-	) -> Poll<std::io::Result<usize>> {
-		Pin::new(&mut self.send).poll_write(cx, buf).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+	fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+		Pin::new(&mut self.send)
+			.poll_write(cx, buf)
+			.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 	}
 
 	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-		Pin::new(&mut self.send).poll_flush(cx).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+		Pin::new(&mut self.send)
+			.poll_flush(cx)
+			.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 	}
 
 	fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-		Pin::new(&mut self.send).poll_shutdown(cx).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+		Pin::new(&mut self.send)
+			.poll_shutdown(cx)
+			.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 	}
 }
 
 /// TUIC server configuration
 ///
 /// This struct contains all the configuration options for the TUIC server,
-/// including TLS settings, QUIC transport parameters, and authentication credentials.
+/// including TLS settings, QUIC transport parameters, and authentication
+/// credentials.
 pub struct TuicInboundOpts {
 	/// Server bind address
 	pub listen_addr: SocketAddr,
@@ -130,7 +133,7 @@ impl Default for TuicInboundOpts {
 			max_idle_time: Duration::from_secs(15),
 			max_concurrent_bi_streams: 32,
 			max_concurrent_uni_streams: 32,
-			send_window: 8 * 1024 * 1024, // 8MB
+			send_window: 8 * 1024 * 1024,    // 8MB
 			receive_window: 8 * 1024 * 1024, // 8MB
 			zero_rtt: false,
 			initial_mtu: 1200,
@@ -142,14 +145,18 @@ impl Default for TuicInboundOpts {
 
 /// TUIC inbound server
 pub struct TuicInbound {
-   pub ctx: Arc<AppContext>,
-	opts: TuicInboundOpts,
-	cancel: CancellationToken,
+	pub ctx: Arc<AppContext>,
+	opts:    TuicInboundOpts,
+	cancel:  CancellationToken,
 }
 
 impl TuicInbound {
 	pub fn new(ctx: Arc<AppContext>, opts: TuicInboundOpts) -> Self {
-		Self { opts, cancel: ctx.token.child_token(), ctx }
+		Self {
+			opts,
+			cancel: ctx.token.child_token(),
+			ctx,
+		}
 	}
 
 	fn create_server_config(&self) -> Result<ServerConfig, Error> {
@@ -168,11 +175,10 @@ impl TuicInbound {
 		}
 
 		let mut config = ServerConfig::with_crypto(Arc::new(
-			quinn::crypto::rustls::QuicServerConfig::try_from(crypto)
-				.map_err(|e| Error::Io {
-					source: std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()),
-					backtrace: std::backtrace::Backtrace::capture(),
-				})?,
+			quinn::crypto::rustls::QuicServerConfig::try_from(crypto).map_err(|e| Error::Io {
+				source:    std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()),
+				backtrace: std::backtrace::Backtrace::capture(),
+			})?,
 		));
 
 		// Setup transport configuration
@@ -182,13 +188,12 @@ impl TuicInbound {
 			.max_concurrent_uni_streams(VarInt::from(self.opts.max_concurrent_uni_streams))
 			.send_window(self.opts.send_window)
 			.stream_receive_window(VarInt::from(self.opts.receive_window))
-			.max_idle_timeout(Some(
-				IdleTimeout::try_from(self.opts.max_idle_time)
-					.map_err(|_| Error::Io {
-						source: std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid max idle time"),
-						backtrace: std::backtrace::Backtrace::capture(),
-					})?,
-			))
+			.max_idle_timeout(Some(IdleTimeout::try_from(self.opts.max_idle_time).map_err(|_| {
+				Error::Io {
+					source:    std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid max idle time"),
+					backtrace: std::backtrace::Backtrace::capture(),
+				}
+			})?))
 			.initial_mtu(self.opts.initial_mtu)
 			.min_mtu(self.opts.min_mtu)
 			.enable_segmentation_offload(self.opts.gso);
@@ -204,26 +209,24 @@ impl AbstractInbound for TuicInbound {
 		let config = self.create_server_config()?;
 
 		// Bind socket
-		let socket = std::net::UdpSocket::bind(self.opts.listen_addr)
-			.context(BindSocketSnafu { socket_addr: self.opts.listen_addr })?;
+		let socket = std::net::UdpSocket::bind(self.opts.listen_addr).context(BindSocketSnafu {
+			socket_addr: self.opts.listen_addr,
+		})?;
 
 		// Create endpoint
-		let endpoint = Endpoint::new(
-			EndpointConfig::default(),
-			Some(config),
-			socket,
-			Arc::new(TokioRuntime),
-		)
-		.context(IoSnafu)?;
+		let endpoint =
+			Endpoint::new(EndpointConfig::default(), Some(config), socket, Arc::new(TokioRuntime)).context(IoSnafu)?;
 
 		info!("TUIC server listening on {}", endpoint.local_addr().unwrap());
 
-		// NOTE: Currently handles connections sequentially due to callback lifetime constraints.
-		// Each QUIC connection runs in a loop processing streams/datagrams until the connection closes.
-		// This means only one connection can be active at a time, which is a limitation.
+		// NOTE: Currently handles connections sequentially due to callback lifetime
+		// constraints. Each QUIC connection runs in a loop processing
+		// streams/datagrams until the connection closes. This means only one
+		// connection can be active at a time, which is a limitation.
 		//
-		// To support concurrent connections, the InboundCallback trait would need to be Clone + 'static,
-		// or the listen() method signature would need to change to take ownership/Arc of the callback.
+		// To support concurrent connections, the InboundCallback trait would need to be
+		// Clone + 'static, or the listen() method signature would need to change to
+		// take ownership/Arc of the callback.
 
 		// Accept connections loop
 		loop {
@@ -254,16 +257,16 @@ impl AbstractInbound for TuicInbound {
 
 /// Represents an authenticated connection
 struct Connection {
-	inner: quinn::Connection,
-	uuid: Arc<RwLock<Option<Uuid>>>,
-	users: HashMap<Uuid, String>,
+	inner:        quinn::Connection,
+	uuid:         Arc<RwLock<Option<Uuid>>>,
+	users:        HashMap<Uuid, String>,
 	udp_sessions: Arc<RwLock<HashMap<u16, UdpSession>>>,
 }
 
 /// UDP session tracking
 #[allow(dead_code)]
 struct UdpSession {
-	assoc_id: u16,
+	assoc_id:  u16,
 	// Track packet fragments if needed
 	fragments: Cache<u16, Vec<u8>>,
 }
@@ -276,7 +279,7 @@ async fn handle_connection<C: InboundCallback>(
 	callback: &C,
 ) -> Result<(), Error> {
 	let remote_addr = incoming.remote_address();
-	
+
 	let connecting = match incoming.accept() {
 		Ok(conn) => conn,
 		Err(e) => {
@@ -284,7 +287,7 @@ async fn handle_connection<C: InboundCallback>(
 			return Ok(());
 		}
 	};
-	
+
 	// Accept connection with optional 0-RTT
 	let conn = if zero_rtt {
 		match connecting.into_0rtt() {
@@ -387,20 +390,20 @@ async fn handle_uni_stream<C: InboundCallback>(
 ) -> Result<(), Error> {
 	// Read all data from stream
 	let data = recv.read_to_end(65536).await.map_err(|e| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+		source:    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 	let mut buf = BytesMut::from(&data[..]);
 
 	// Decode header
 	let header = HeaderCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
+		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 
 	// Decode command
 	let cmd = CmdCodec(header.command).decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete command"),
+		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete command"),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 
@@ -411,7 +414,7 @@ async fn handle_uni_stream<C: InboundCallback>(
 		Command::Packet { assoc_id, size, .. } => {
 			// Decode address
 			let addr = AddressCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-				source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete address"),
+				source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete address"),
 				backtrace: std::backtrace::Backtrace::capture(),
 			})?;
 
@@ -458,13 +461,13 @@ async fn handle_bi_stream<C: InboundCallback>(
 	// Read header and command
 	let mut header_buf = vec![0u8; 2];
 	recv.read_exact(&mut header_buf).await.map_err(|e| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+		source:    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 	let mut buf = BytesMut::from(&header_buf[..]);
 
 	let header = HeaderCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
+		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 
@@ -475,12 +478,12 @@ async fn handle_bi_stream<C: InboundCallback>(
 
 			// Read address
 			let addr_data = recv.read_to_end(512).await.map_err(|e| Error::Io {
-				source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+				source:    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
 				backtrace: std::backtrace::Backtrace::capture(),
 			})?;
 			let mut addr_buf = BytesMut::from(&addr_data[..]);
 			let addr = AddressCodec.decode(&mut addr_buf)?.context(BytesRemainingSnafu)?;
-			
+
 			let target_addr = match addr {
 				Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
 				Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
@@ -495,12 +498,9 @@ async fn handle_bi_stream<C: InboundCallback>(
 
 			// Create bidirectional stream from quinn's send/recv pair
 			let stream = QuicBidiStream { send, recv };
-			
+
 			// Forward to callback for outbound handling
-			callback.handle_tcpstream(target_addr, stream).await.map_err(|e| Error::Io {
-				source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-				backtrace: std::backtrace::Backtrace::capture(),
-			})?;
+			callback.handle_tcpstream(target_addr, stream).await?;
 		}
 		_ => {
 			warn!("Unexpected command on bi stream: {:?}", header.command);
@@ -528,29 +528,29 @@ async fn handle_datagram<C: InboundCallback>(
 
 	// Decode header
 	let header = HeaderCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
+		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 
 	match header.command {
 		CmdType::Packet => {
 			let cmd = CmdCodec(CmdType::Packet).decode(&mut buf)?.ok_or_else(|| Error::Io {
-				source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete command"),
+				source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete command"),
 				backtrace: std::backtrace::Backtrace::capture(),
 			})?;
 
 			if let Command::Packet { assoc_id, size, .. } = cmd {
 				let addr = AddressCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-					source: std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete address"),
+					source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete address"),
 					backtrace: std::backtrace::Backtrace::capture(),
 				})?;
 
 				let payload = buf.split_to(size as usize).freeze();
 				let target_addr: wind_core::types::TargetAddr = match addr {
-					crate::proto::Address::Domain(domain, port) => wind_core::types::TargetAddr::Domain(domain, port),
-					crate::proto::Address::IPv4(ip, port) => wind_core::types::TargetAddr::IPv4(ip, port),
-					crate::proto::Address::IPv6(ip, port) => wind_core::types::TargetAddr::IPv6(ip, port),
-					crate::proto::Address::None => return Ok(()),
+					Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
+					Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
+					Address::IPv6(ip, port) => TargetAddr::IPv6(ip, port),
+					Address::None => return Ok(()),
 				};
 				handle_udp_packet(&connection, assoc_id, target_addr, payload, callback).await?;
 			}
@@ -568,18 +568,19 @@ async fn handle_datagram<C: InboundCallback>(
 async fn handle_auth(connection: &Connection, uuid: Uuid, token: [u8; 32]) -> Result<(), Error> {
 	// Check if user exists
 	let password = connection.users.get(&uuid).ok_or_else(|| Error::Io {
-		source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("Unknown user: {}", uuid)),
+		source:    std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("Unknown user: {}", uuid)),
 		backtrace: std::backtrace::Backtrace::capture(),
 	})?;
 
 	// Verify token
 	let mut expected_token = [0u8; 32];
-	connection.inner
+	connection
+		.inner
 		.export_keying_material(&mut expected_token, uuid.as_bytes(), password.as_bytes())?;
 
 	if token != expected_token {
 		return Err(Error::Io {
-			source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Invalid token"),
+			source:    std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Invalid token"),
 			backtrace: std::backtrace::Backtrace::capture(),
 		});
 	}
@@ -597,20 +598,27 @@ async fn handle_udp_packet<C: InboundCallback>(
 	assoc_id: u16,
 	target_addr: wind_core::types::TargetAddr,
 	payload: bytes::Bytes,
-	_callback: &C,
+	callback: &C,
 ) -> Result<(), Error> {
 	// TODO: Complete UDP packet handling
 	// Full implementation requires:
 	// 1. Creating a virtual UDP socket that maps TUIC packets to UDP datagrams
-	// 2. Handling bidirectional packet flow (inbound packets from client, outbound packets to client)
+	// 2. Handling bidirectional packet flow (inbound packets from client, outbound
+	//    packets to client)
 	// 3. Managing UDP sessions per assoc_id
 	// 4. Handling packet fragmentation
 	//
 	// For now, we log the received packet
-	info!("Received UDP packet for session {} to {} ({} bytes)", assoc_id, target_addr, payload.len());
-	
-	// The proper implementation would involve creating a TuicUdpSocket similar to Socks5UdpSocket
-	// that implements AbstractUdpSocket and handles the packet translation
+	info!(
+		"Received UDP packet for session {} to {} ({} bytes)",
+		assoc_id,
+		target_addr,
+		payload.len()
+	);
+	// callback.handle_udpsocket(socket)
+	// The proper implementation would involve creating a TuicUdpSocket similar to
+	// Socks5UdpSocket that implements AbstractUdpSocket and handles the packet
+	// translation
 	warn!("UDP relay not yet fully implemented - packet received but not forwarded");
 	Ok(())
 }

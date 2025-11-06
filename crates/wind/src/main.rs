@@ -113,9 +113,7 @@ async fn main() -> eyre::Result<()> {
 			println!("Created default configuration at: {}", file_path.display());
 			return Ok(());
 		}
-		None => {
-
-		}
+		None => {}
 	}
 
 	// Load configuration using the persistent config module

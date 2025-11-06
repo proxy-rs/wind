@@ -482,7 +482,7 @@ mod tests {
 	}
 
 	/// Test fragment reassembly buffer
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_fragment_reassembly_single_fragment() {
 		let buffer = FragmentReassemblyBuffer::new();
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);
@@ -509,7 +509,7 @@ mod tests {
 	}
 
 	/// Test fragment reassembly with multiple fragments
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_fragment_reassembly_multiple_fragments() {
 		let buffer = FragmentReassemblyBuffer::new();
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);
@@ -554,7 +554,7 @@ mod tests {
 	}
 
 	/// Test fragment reassembly with out-of-order fragments
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_fragment_reassembly_out_of_order() {
 		let buffer = FragmentReassemblyBuffer::new();
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);
@@ -617,7 +617,7 @@ mod tests {
 	}
 
 	/// Test multiple simultaneous fragmentations
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_multiple_simultaneous_fragmentations() {
 		let buffer = FragmentReassemblyBuffer::new();
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);
@@ -686,7 +686,7 @@ mod tests {
 	}
 
 	/// Test fragment cleanup (expired fragments)
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_fragment_cleanup() {
 		let buffer = FragmentReassemblyBuffer::new();
 		let target = TargetAddr::IPv4(Ipv4Addr::new(127, 0, 0, 1), 8080);

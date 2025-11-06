@@ -46,7 +46,7 @@ pub enum ProtoError {
 	ReadToEnd {
 		source:    ReadToEndError,
 		backtrace: Backtrace,
-	}
+	},
 }
 
 impl From<std::io::Error> for ProtoError {

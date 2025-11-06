@@ -8,7 +8,7 @@ mod test {
 
 	use crate::proto::{Address, AddressCodec, CmdCodec, CmdType, Command, Header, HeaderCodec};
 
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn hex_check_connect_encode() -> eyre::Result<()> {
 		let mut buffer = BytesMut::with_capacity(9);
 		let addr = Address::IPv4(Ipv4Addr::LOCALHOST, 80);
@@ -19,7 +19,7 @@ mod test {
 		assert_eq!("0501017f0000010050", hex::encode(buffer));
 		Ok(())
 	}
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn hex_check_auth_encode() -> eyre::Result<()> {
 		let auth_cmd = Command::Auth {
 			uuid:  Uuid::from_u128(0),

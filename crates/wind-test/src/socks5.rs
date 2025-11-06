@@ -339,7 +339,9 @@ pub async fn test_socks5_udp_large_packet(
 					} else {
 						return Err(eyre::eyre!(
 							"Packet integrity check failed: expected checksum 0x{:08X}, received 0x{:08X}, calculated 0x{:08X}",
-							checksum, received_checksum, calc_checksum
+							checksum,
+							received_checksum,
+							calc_checksum
 						));
 					}
 				}
@@ -356,11 +358,13 @@ pub async fn test_socks5_udp_large_packet(
 							break;
 						}
 					}
-					
+
 					if let Some((i, sent, recv)) = first_diff {
 						return Err(eyre::eyre!(
 							"Packet data mismatch detected at byte {}: sent 0x{:02X}, received 0x{:02X}",
-							i, sent, recv
+							i,
+							sent,
+							recv
 						));
 					} else {
 						return Err(eyre::eyre!("Packet data mismatch detected"));
@@ -398,36 +402,37 @@ pub async fn test_socks5_udp_large_packet(
 // =============================================================================
 
 /// Helper function to start the proxy server for testing
-/// 
+///
 /// This function creates a complete test proxy setup with:
 /// - A SOCKS5 inbound server (listening for client connections)
 /// - A TUIC inbound server (for encrypted relay)
 /// - Direct outbound connections (no external TUIC server required)
-/// 
+///
 /// Architecture:
 /// ```markdown
 /// Client -> SOCKS5 Inbound -> TUIC Outbound (Client) -> TUIC Inbound (Server) -> Direct Outbound -> Internet
 ///           (127.0.0.1:socks_port)                      (127.0.0.1:tuic_port)
 /// ```
-/// 
-/// The TUIC inbound server uses a self-signed certificate and handles both TCP and UDP
-/// traffic by directly connecting to target addresses (no intermediary TUIC server needed).
+///
+/// The TUIC inbound server uses a self-signed certificate and handles both TCP
+/// and UDP traffic by directly connecting to target addresses (no intermediary
+/// TUIC server needed).
 ///
 /// Returns the AppContext and server task handle
 #[allow(dead_code)]
 async fn start_test_proxy(socks_port: u16) -> eyre::Result<(Arc<wind_core::AppContext>, tokio::task::JoinHandle<()>)> {
 	use wind_socks::inbound::SocksInboundOpt;
-	
+
 	let ctx = Arc::new(wind_core::AppContext::default());
-	
+
 	// Create test configuration with dynamic port
 	let config = TestConfig {
 		socks_opt: SocksInboundOpt {
 			listen_addr: format!("127.0.0.1:{}", socks_port).parse()?,
 			public_addr: None,
-			auth: wind_socks::inbound::AuthMode::NoAuth,
-			skip_auth: false,
-			allow_udp: true,
+			auth:        wind_socks::inbound::AuthMode::NoAuth,
+			skip_auth:   false,
+			allow_udp:   true,
 		},
 		tuic_port: 0, // Let OS assign a port
 	};
@@ -438,10 +443,10 @@ async fn start_test_proxy(socks_port: u16) -> eyre::Result<(Arc<wind_core::AppCo
 			eprintln!("Server error: {}", e);
 		}
 	});
-	
+
 	// Wait a bit for server to start
 	tokio::time::sleep(Duration::from_millis(500)).await;
-	
+
 	Ok((ctx, server_handle))
 }
 
@@ -453,13 +458,16 @@ struct TestConfig {
 
 async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> eyre::Result<()> {
 	use std::collections::HashMap;
-	use wind_core::{InboundCallback, inbound::AbstractInbound, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket};
-	
+
+	use wind_core::{
+		InboundCallback, inbound::AbstractInbound, tcp::AbstractTcpStream, types::TargetAddr, udp::AbstractUdpSocket,
+	};
+
 	// Generate self-signed certificate for testing
 	let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
 	let cert_der = cert.cert.der().to_vec();
 	let key_der = cert.key_pair.serialize_der();
-	
+
 	// Setup TUIC server options
 	let tuic_opts = wind_tuic::inbound::TuicInboundOpts {
 		listen_addr: format!("127.0.0.1:{}", config.tuic_port).parse()?,
@@ -470,7 +478,7 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 			let mut users = HashMap::new();
 			users.insert(
 				"c1e6dbe2-f417-4890-994c-9ee15b926597".parse().unwrap(),
-				"test_passwd".to_string()
+				"test_passwd".to_string(),
 			);
 			users
 		},
@@ -478,12 +486,12 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 		max_idle_time: Duration::from_secs(15),
 		..Default::default()
 	};
-	
+
 	// Define the Manager struct for handling inbound connections
 	#[derive(Clone)]
 	struct TestManager {
 		socks_inbound: Arc<wind_socks::inbound::SocksInbound>,
-		tuic_inbound: Arc<wind_tuic::inbound::TuicInbound>,
+		tuic_inbound:  Arc<wind_tuic::inbound::TuicInbound>,
 	}
 
 	impl InboundCallback for TestManager {
@@ -499,19 +507,19 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 			Ok(())
 		}
 	}
-	
+
 	// Helper function to handle TCP direct connection
 	async fn handle_tcp_direct(target_addr: TargetAddr, mut inbound_stream: impl AbstractTcpStream) -> eyre::Result<()> {
 		use tokio::io::AsyncWriteExt;
-		
+
 		// Connect to target
 		let addr = target_addr.to_string();
 		let mut outbound_stream = tokio::net::TcpStream::connect(&addr).await?;
-		
+
 		// Bidirectional relay
 		let (mut inbound_read, mut inbound_write) = tokio::io::split(&mut inbound_stream);
 		let (mut outbound_read, mut outbound_write) = outbound_stream.split();
-		
+
 		tokio::try_join!(
 			async {
 				tokio::io::copy(&mut inbound_read, &mut outbound_write).await?;
@@ -524,38 +532,37 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 				eyre::Ok(())
 			}
 		)?;
-		
+
 		Ok(())
 	}
-	
+
 	// Helper function to handle UDP direct relay
 	async fn handle_udp_direct(socket: impl AbstractUdpSocket + 'static) -> eyre::Result<()> {
-		use std::io::IoSliceMut;
-		use wind_core::udp::RecvMeta;
-		use std::collections::HashMap;
-		use std::sync::Arc;
+		use std::{collections::HashMap, io::IoSliceMut, sync::Arc};
+
 		use tokio::sync::Mutex;
-		
+		use wind_core::udp::RecvMeta;
+
 		// Use Arc<Mutex> to share the socket across tasks
 		let socket = Arc::new(socket);
 		let target_sockets: Arc<Mutex<HashMap<String, Arc<tokio::net::UdpSocket>>>> = Arc::new(Mutex::new(HashMap::new()));
-		
+
 		// Spawn task to relay packets from inbound to targets
 		let socket_clone = socket.clone();
 		let target_sockets_clone = target_sockets.clone();
 		tokio::spawn(async move {
 			let mut bufs = vec![vec![0u8; 65536]];
 			let mut meta = vec![RecvMeta::default()];
-			
+
 			loop {
 				let mut io_slices: Vec<IoSliceMut> = bufs.iter_mut().map(|b| IoSliceMut::new(b)).collect();
-				
+
 				match socket_clone.recv(&mut io_slices, &mut meta).await {
 					Ok(count) if count > 0 => {
 						for i in 0..count {
 							let recv_meta = &meta[i];
 							let data = &bufs[i][..recv_meta.len];
-							
+
 							// Determine target address
 							let target_addr = if let Some(dest) = &recv_meta.destination {
 								dest.clone()
@@ -563,9 +570,9 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 								// If no destination, skip this packet
 								continue;
 							};
-							
+
 							let target_key = target_addr.to_string();
-							
+
 							// Get or create target socket
 							let target_socket = {
 								let mut sockets = target_sockets_clone.lock().await;
@@ -574,7 +581,7 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 								} else {
 									let new_sock = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap());
 									sockets.insert(target_key.clone(), new_sock.clone());
-									
+
 									// Spawn receive task for this target
 									let socket_for_recv = socket_clone.clone();
 									let target_sock_for_recv = new_sock.clone();
@@ -586,11 +593,11 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 												Ok((len, _from)) => {
 													use wind_core::udp::Transmit;
 													let transmit = Transmit {
-														destination: source_addr,
-														contents: &buf[..len],
-														ecn: None,
+														destination:  source_addr,
+														contents:     &buf[..len],
+														ecn:          None,
 														segment_size: None,
-														src_ip: None,
+														src_ip:       None,
 													};
 													let _ = socket_for_recv.try_send(&transmit);
 												}
@@ -598,11 +605,11 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 											}
 										}
 									});
-									
+
 									new_sock
 								}
 							};
-							
+
 							// Send to target
 							let _ = target_socket.send_to(data, target_key).await;
 						}
@@ -612,17 +619,17 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 			}
 			eyre::Ok(())
 		});
-		
+
 		Ok(())
 	}
-	
+
 	// Initialize inbound servers
 	let tuic_inbound = Arc::new(wind_tuic::inbound::TuicInbound::new(ctx.clone(), tuic_opts));
 	let socks_inbound = Arc::new(wind_socks::inbound::SocksInbound::new(config.socks_opt, ctx.token.child_token()).await);
-	
-	let manager = Arc::new(TestManager { 
+
+	let manager = Arc::new(TestManager {
 		socks_inbound: socks_inbound.clone(),
-		tuic_inbound: tuic_inbound.clone(),
+		tuic_inbound:  tuic_inbound.clone(),
 	});
 
 	// Start TUIC inbound listening task
@@ -638,7 +645,7 @@ async fn run_test_proxy(ctx: Arc<wind_core::AppContext>, config: TestConfig) -> 
 		manager_for_socks.socks_inbound.listen(manager_for_socks.as_ref()).await?;
 		eyre::Ok(())
 	});
-	
+
 	Ok(())
 }
 
@@ -675,13 +682,13 @@ mod tests {
 		// Start proxy server on a test port
 		let test_port = 16666;
 		let (ctx, _server_handle) = start_test_proxy(test_port).await.expect("Failed to start proxy");
-		
+
 		let result = test_socks5_tcp(&format!("127.0.0.1:{}", test_port), "example.com", 80).await;
-		
+
 		// Cleanup
 		ctx.token.cancel();
 		let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
-		
+
 		assert!(result.is_ok(), "TCP proxy test failed: {:?}", result.err());
 	}
 
@@ -691,12 +698,13 @@ mod tests {
 			Arc,
 			atomic::{AtomicBool, Ordering},
 		};
+
 		use tokio::net::UdpSocket;
 
 		// Start proxy server on a test port
 		let test_port = 16667;
 		let (ctx, _server_handle) = start_test_proxy(test_port).await.expect("Failed to start proxy");
-		
+
 		// Start a local UDP echo server for testing
 		let echo_server_running = Arc::new(AtomicBool::new(true));
 		let echo_server_running_clone = echo_server_running.clone();
@@ -719,7 +727,10 @@ mod tests {
 				match tokio::time::timeout(Duration::from_millis(100), echo_socket.recv_from(&mut buffer)).await {
 					Ok(Ok((len, from_addr))) => {
 						packet_count += 1;
-						println!("  Echo server received packet #{}: {} bytes from {}", packet_count, len, from_addr);
+						println!(
+							"  Echo server received packet #{}: {} bytes from {}",
+							packet_count, len, from_addr
+						);
 						// Echo the packet back
 						if let Err(e) = echo_socket.send_to(&buffer[..len], from_addr).await {
 							println!("  Echo server send error: {}", e);
@@ -740,18 +751,18 @@ mod tests {
 
 		// Test UDP through proxy using local echo server
 		let result = test_socks5_udp(&format!("127.0.0.1:{}", test_port), "127.0.0.1", echo_port).await;
-		
+
 		// Signal the echo server to stop
 		echo_server_running.store(false, Ordering::Relaxed);
 		match tokio::time::timeout(Duration::from_secs(2), echo_task).await {
-			Ok(_) => {},
+			Ok(_) => {}
 			Err(_) => panic!("Echo server stop timeout in test_udp_through_proxy"),
 		}
 
 		// Cleanup proxy
 		ctx.token.cancel();
 		let _ = tokio::time::timeout(Duration::from_secs(5), ctx.tasks.wait()).await;
-		
+
 		match &result {
 			Ok(_) => println!("✓ UDP proxy test passed successfully"),
 			Err(e) => {

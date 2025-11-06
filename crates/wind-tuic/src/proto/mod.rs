@@ -15,10 +15,9 @@ mod addr;
 pub use addr::*;
 
 mod udp_stream;
-pub use udp_stream::*;
-
 use snafu::ResultExt;
 use tokio_util::codec::Encoder;
+pub use udp_stream::*;
 use wind_core::{io::quinn::QuinnCompat, tcp::AbstractTcpStream, types::TargetAddr};
 
 use crate::{Error, SendDatagramSnafu};

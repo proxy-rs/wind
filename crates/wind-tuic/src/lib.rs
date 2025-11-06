@@ -72,6 +72,11 @@ pub enum Error {
 		source:    quinn::ConnectionError,
 		backtrace: Backtrace,
 	},
+
+	Eyre {
+		source:    eyre::Report,
+		backtrace: Backtrace,
+	},
 }
 
 impl From<ProtoError> for Error {
@@ -113,5 +118,21 @@ impl From<quinn::WriteError> for Error {
 	#[inline(always)]
 	fn from(value: quinn::WriteError) -> Self {
 		WriteSnafu.into_error(value)
+	}
+}
+
+impl From<eyre::Report> for Error {
+	#[inline(always)]
+	fn from(value: eyre::Report) -> Self {
+		use std::error::Error as StdError;
+
+		// Try to extract backtrace from the error chain
+		let backtrace =
+			std::error::request_value::<Backtrace>(value.as_ref() as &dyn StdError).unwrap_or_else(Backtrace::capture);
+
+		Error::Eyre {
+			source: value,
+			backtrace,
+		}
 	}
 }

@@ -205,7 +205,7 @@ mod test {
 	use crate::proto::ProtoError;
 
 	/// Test complete encoding and decoding cycle for all address types
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_addr_1() -> eyre::Result<()> {
 		let buffer = Vec::with_capacity(128);
 		let vars = vec![
@@ -240,7 +240,7 @@ mod test {
 	}
 
 	/// Test behavior with partial data (simulating streaming data arrival)
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn test_addr_2() -> eyre::Result<()> {
 		let vars = vec![
 			Address::IPv4(Ipv4Addr::LOCALHOST, 80),
@@ -279,7 +279,7 @@ mod test {
 	}
 
 	/// Test to generate and inspect hex encoding (useful for debugging)
-	#[tokio::test]
+	#[test_log::test(tokio::test)]
 	async fn hex_check() -> eyre::Result<()> {
 		let mut buffer = Vec::new();
 		let vars = vec![
@@ -291,7 +291,7 @@ mod test {
 
 		// Encode the second address and print its hex representation
 		FramedWrite::new(&mut buffer, AddressCodec).send(vars[1].clone()).await?;
-		println!("{}", hex::encode(buffer));
+		tracing::info!("{}", hex::encode(buffer));
 		Ok(())
 	}
 }
