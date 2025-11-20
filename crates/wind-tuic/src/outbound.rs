@@ -8,7 +8,6 @@ use std::{
 use eyre::ensure;
 use moka::future::Cache;
 use quinn::TokioRuntime;
-use snafu::ResultExt;
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -21,7 +20,7 @@ use wind_core::{
 };
 
 use crate::{
-	BindSocketSnafu, Error, QuicConnectSnafu,
+	Error,
 	proto::{ClientProtoExt, UdpStream},
 	task::ClientTaskExt,
 };
@@ -80,17 +79,14 @@ impl TuicOutbound {
 		let socket_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0));
 		let socket = UdpSocket::bind(&socket_addr)
 			.await
-			.context(BindSocketSnafu { socket_addr })?
+			.map_err(|e| eyre::eyre!("Failed to bind socket to {}: {}", socket_addr, e))?
 			.into_std()?;
 
 		let mut endpoint = quinn::Endpoint::new(quinn::EndpointConfig::default(), None, socket, Arc::new(TokioRuntime))?;
 		endpoint.set_default_client_config(client_config);
 		let connection = endpoint
 			.connect(peer_addr, &server_name)
-			.context(QuicConnectSnafu {
-				addr:        peer_addr,
-				server_name: server_name.clone(),
-			})?
+			.map_err(|e| eyre::eyre!("Failed to connect to {} ({}): {}", peer_addr, server_name, e))?
 			.await?;
 
 		connection.send_auth(&opts.auth.0, &opts.auth.1).await?;

@@ -41,8 +41,8 @@ hex = { package = "const-hex", version = "1" }
 eyre = "0.6"
 
 # Patterns
+snafu = "0.8"
 num_enum = "0.7"
-snafu = { version = "0.8", features = ["unstable-provider-api"]}
 enum_dispatch = "0.3"
 secrecy = "0.10"
 pin-project = "1"

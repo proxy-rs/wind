@@ -9,10 +9,9 @@ use snafu::{ResultExt, ensure};
 use tokio_util::codec::{Decoder, Encoder};
 use wind_core::types::TargetAddr;
 
-use crate::{
-	ProtoError,
-	proto::{BytesRemainingSnafu, DomainTooLongSnafu, FailParseDomainSnafu, UnknownAddressTypeSnafu},
-};
+#[cfg(feature = "decode")]
+use crate::proto::ProtoError;
+use crate::proto::{BytesRemainingSnafu, DomainTooLongSnafu, FailParseDomainSnafu, UnknownAddressTypeSnafu};
 
 //-----------------------------------------------------------------------------
 // Type Definitions

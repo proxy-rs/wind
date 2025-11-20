@@ -13,10 +13,7 @@ use moka::future::Cache;
 use tokio_util::codec::Encoder;
 use wind_core::{types::TargetAddr, udp::UdpPacket};
 
-use crate::{
-	Error,
-	proto::{Address, AddressCodec, ClientProtoExt as _, CmdCodec, CmdType, Command, Header, HeaderCodec},
-};
+use crate::proto::{Address, AddressCodec, ClientProtoExt as _, CmdCodec, CmdType, Command, Header, HeaderCodec};
 
 // Define MTU sizes for UDP segmentation
 const MAX_FRAGMENTS: u8 = 255; // Maximum number of fragments allowed
@@ -375,7 +372,7 @@ impl UdpStream {
 		self.fragment_buffer.cleanup_expired();
 	}
 
-	pub async fn close(&mut self) -> Result<(), Error> {
+	pub async fn close(&mut self) -> Result<(), crate::Error> {
 		// Close the UDP association
 		self.connection.drop_udp(self.assoc_id).await
 	}

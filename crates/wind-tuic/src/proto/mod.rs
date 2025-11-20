@@ -4,6 +4,7 @@ pub use error::*;
 mod header;
 
 use bytes::{Buf, BytesMut};
+use eyre::eyre;
 pub use header::*;
 
 mod cmd;
@@ -15,12 +16,11 @@ mod addr;
 pub use addr::*;
 
 mod udp_stream;
-use snafu::ResultExt;
 use tokio_util::codec::Encoder;
 pub use udp_stream::*;
 use wind_core::{io::quinn::QuinnCompat, tcp::AbstractTcpStream, types::TargetAddr};
 
-use crate::{Error, SendDatagramSnafu};
+use crate::Error;
 
 pub const VER: u8 = 5;
 
@@ -47,7 +47,8 @@ impl ClientProtoExt for quinn::Connection {
 	async fn send_auth(&self, uuid: &uuid::Uuid, secret: &[u8]) -> Result<(), Error> {
 		// Generate the authentication token
 		let mut token = [0u8; 32];
-		self.export_keying_material(&mut token, uuid.as_bytes(), secret)?;
+		self.export_keying_material(&mut token, uuid.as_bytes(), secret)
+			.map_err(|_| eyre!("export_keying_material requested output length is too large."))?;
 
 		// Create and encode the auth command
 		let auth_cmd = Command::Auth { uuid: *uuid, token };
@@ -104,8 +105,7 @@ impl ClientProtoExt for quinn::Connection {
 		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
 		if datagram {
 			let mut combined = buf.freeze().chain(payload);
-			self.send_datagram(combined.copy_to_bytes(combined.remaining()))
-				.context(SendDatagramSnafu)?;
+			self.send_datagram(combined.copy_to_bytes(combined.remaining()))?;
 		} else {
 			let mut send = self.open_uni().await?;
 			send.write_all_chunks(&mut [buf.into(), payload]).await?;
@@ -131,7 +131,7 @@ impl ClientProtoExt for quinn::Connection {
 		HeaderCodec.encode(Header::new(CmdType::Heartbeat), &mut buf)?;
 
 		// Send it as a datagram for lowest latency
-		self.send_datagram(buf.freeze()).context(SendDatagramSnafu)?;
+		self.send_datagram(buf.freeze())?;
 
 		Ok(())
 	}

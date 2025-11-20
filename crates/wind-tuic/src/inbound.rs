@@ -7,18 +7,18 @@ use std::{
 	net::SocketAddr,
 	pin::Pin,
 	sync::Arc,
-	task::{Context, Poll},
+	task::{Context as TaskContext, Poll},
 	time::Duration,
 };
 
 use bytes::BytesMut;
+use eyre::{Context, ContextCompat};
 use moka::future::Cache;
 use quinn::{Endpoint, EndpointConfig, IdleTimeout, ServerConfig, TokioRuntime, TransportConfig, VarInt};
 use rustls::{
 	ServerConfig as RustlsServerConfig,
 	pki_types::{CertificateDer, PrivateKeyDer},
 };
-use snafu::{OptionExt, ResultExt};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	sync::RwLock,
@@ -27,10 +27,7 @@ use tokio_util::{codec::Decoder, sync::CancellationToken};
 use uuid::Uuid;
 use wind_core::{AbstractInbound, AppContext, InboundCallback, error, info, types::TargetAddr, warn};
 
-use crate::{
-	BindSocketSnafu, Error, IoSnafu, QuicConnectionSnafu, TlsSnafu,
-	proto::{Address, AddressCodec, BytesRemainingSnafu, CmdCodec, CmdType, Command, HeaderCodec},
-};
+use crate::proto::{Address, AddressCodec, CmdCodec, CmdType, Command, HeaderCodec};
 
 /// Wrapper to combine quinn's SendStream and RecvStream into a single
 /// bidirectional stream
@@ -42,7 +39,7 @@ struct QuicBidiStream {
 impl AsyncRead for QuicBidiStream {
 	fn poll_read(
 		mut self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
+		cx: &mut TaskContext<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
 	) -> Poll<std::io::Result<()>> {
 		Pin::new(&mut self.recv).poll_read(cx, buf)
@@ -50,19 +47,19 @@ impl AsyncRead for QuicBidiStream {
 }
 
 impl AsyncWrite for QuicBidiStream {
-	fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+	fn poll_write(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
 		Pin::new(&mut self.send)
 			.poll_write(cx, buf)
 			.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 	}
 
-	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
 		Pin::new(&mut self.send)
 			.poll_flush(cx)
 			.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 	}
 
-	fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+	fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
 		Pin::new(&mut self.send)
 			.poll_shutdown(cx)
 			.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
@@ -159,12 +156,12 @@ impl TuicInbound {
 		}
 	}
 
-	fn create_server_config(&self) -> Result<ServerConfig, Error> {
+	fn create_server_config(&self) -> eyre::Result<ServerConfig> {
 		// Setup TLS configuration
 		let mut crypto = RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
 			.with_no_client_auth()
 			.with_single_cert(self.opts.certificate.clone(), self.opts.private_key.clone_key())
-			.context(TlsSnafu)?;
+			.wrap_err("Failed to configure TLS certificate")?;
 
 		crypto.alpn_protocols = self.opts.alpn.iter().map(|alpn| alpn.as_bytes().to_vec()).collect();
 
@@ -175,10 +172,8 @@ impl TuicInbound {
 		}
 
 		let mut config = ServerConfig::with_crypto(Arc::new(
-			quinn::crypto::rustls::QuicServerConfig::try_from(crypto).map_err(|e| Error::Io {
-				source:    std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()),
-				backtrace: std::backtrace::Backtrace::capture(),
-			})?,
+			quinn::crypto::rustls::QuicServerConfig::try_from(crypto)
+				.map_err(|e| eyre::eyre!("Failed to create QUIC server config: {}", e))?,
 		));
 
 		// Setup transport configuration
@@ -188,12 +183,9 @@ impl TuicInbound {
 			.max_concurrent_uni_streams(VarInt::from(self.opts.max_concurrent_uni_streams))
 			.send_window(self.opts.send_window)
 			.stream_receive_window(VarInt::from(self.opts.receive_window))
-			.max_idle_timeout(Some(IdleTimeout::try_from(self.opts.max_idle_time).map_err(|_| {
-				Error::Io {
-					source:    std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid max idle time"),
-					backtrace: std::backtrace::Backtrace::capture(),
-				}
-			})?))
+			.max_idle_timeout(Some(
+				IdleTimeout::try_from(self.opts.max_idle_time).map_err(|_| eyre::eyre!("Invalid max idle time"))?,
+			))
 			.initial_mtu(self.opts.initial_mtu)
 			.min_mtu(self.opts.min_mtu)
 			.enable_segmentation_offload(self.opts.gso);
@@ -209,13 +201,12 @@ impl AbstractInbound for TuicInbound {
 		let config = self.create_server_config()?;
 
 		// Bind socket
-		let socket = std::net::UdpSocket::bind(self.opts.listen_addr).context(BindSocketSnafu {
-			socket_addr: self.opts.listen_addr,
-		})?;
+		let socket = std::net::UdpSocket::bind(self.opts.listen_addr)
+			.with_context(|| format!("Failed to bind socket on {}", self.opts.listen_addr))?;
 
 		// Create endpoint
-		let endpoint =
-			Endpoint::new(EndpointConfig::default(), Some(config), socket, Arc::new(TokioRuntime)).context(IoSnafu)?;
+		let endpoint = Endpoint::new(EndpointConfig::default(), Some(config), socket, Arc::new(TokioRuntime))
+			.wrap_err("Failed to create QUIC endpoint")?;
 
 		info!("TUIC server listening on {}", endpoint.local_addr().unwrap());
 
@@ -256,8 +247,8 @@ impl AbstractInbound for TuicInbound {
 }
 
 /// Represents an authenticated connection
-struct Connection {
-	inner:        quinn::Connection,
+struct InboundCtx {
+	conn:         quinn::Connection,
 	uuid:         Arc<RwLock<Option<Uuid>>>,
 	users:        HashMap<Uuid, String>,
 	udp_sessions: Arc<RwLock<HashMap<u16, UdpSession>>>,
@@ -277,7 +268,7 @@ async fn handle_connection<C: InboundCallback>(
 	auth_timeout: Duration,
 	zero_rtt: bool,
 	callback: &C,
-) -> Result<(), Error> {
+) -> eyre::Result<()> {
 	let remote_addr = incoming.remote_address();
 
 	let connecting = match incoming.accept() {
@@ -296,19 +287,19 @@ async fn handle_connection<C: InboundCallback>(
 				conn
 			}
 			Err(connecting) => {
-				let conn = connecting.await.context(QuicConnectionSnafu)?;
+				let conn = connecting.await.wrap_err("Failed to establish QUIC connection")?;
 				info!("Accepted 1-RTT connection from {}", remote_addr);
 				conn
 			}
 		}
 	} else {
-		let conn = connecting.await.context(QuicConnectionSnafu)?;
+		let conn = connecting.await.wrap_err("Failed to establish QUIC connection")?;
 		info!("Accepted connection from {}", remote_addr);
 		conn
 	};
 
-	let connection = Arc::new(Connection {
-		inner: conn.clone(),
+	let connection = Arc::new(InboundCtx {
+		conn: conn.clone(),
 		uuid: Arc::new(RwLock::new(None)),
 		users,
 		udp_sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -321,7 +312,7 @@ async fn handle_connection<C: InboundCallback>(
 		let uuid = conn_auth.uuid.read().await;
 		if uuid.is_none() {
 			warn!("Connection from {} authentication timeout", remote_addr);
-			conn_auth.inner.close(VarInt::from_u32(0), b"auth timeout");
+			conn_auth.conn.close(VarInt::from_u32(0), b"auth timeout");
 		}
 	});
 
@@ -329,7 +320,7 @@ async fn handle_connection<C: InboundCallback>(
 	loop {
 		tokio::select! {
 			// Handle unidirectional streams
-			result = connection.inner.accept_uni() => {
+			result = connection.conn.accept_uni() => {
 				match result {
 					Ok(recv) => {
 						let conn = connection.clone();
@@ -345,7 +336,7 @@ async fn handle_connection<C: InboundCallback>(
 				}
 			}
 			// Handle bidirectional streams
-			result = connection.inner.accept_bi() => {
+			result = connection.conn.accept_bi() => {
 				match result {
 					Ok((send, recv)) => {
 						let conn = connection.clone();
@@ -361,7 +352,7 @@ async fn handle_connection<C: InboundCallback>(
 				}
 			}
 			// Handle datagrams
-			result = connection.inner.read_datagram() => {
+			result = connection.conn.read_datagram() => {
 				match result {
 					Ok(datagram) => {
 						let conn = connection.clone();
@@ -384,55 +375,46 @@ async fn handle_connection<C: InboundCallback>(
 
 /// Handle unidirectional stream (Auth, Packet, Dissociate, Heartbeat)
 async fn handle_uni_stream<C: InboundCallback>(
-	connection: Arc<Connection>,
+	ctx: Arc<InboundCtx>,
 	mut recv: quinn::RecvStream,
 	callback: &C,
-) -> Result<(), Error> {
+) -> eyre::Result<()> {
 	// Read all data from stream
-	let data = recv.read_to_end(65536).await.map_err(|e| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	let data = recv
+		.read_to_end(65536)
+		.await
+		.map_err(|e| eyre::eyre!("Failed to read stream: {}", e))?;
 	let mut buf = BytesMut::from(&data[..]);
 
 	// Decode header
-	let header = HeaderCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	let header = HeaderCodec.decode(&mut buf)?.context("Incomplete header")?;
 
 	// Decode command
-	let cmd = CmdCodec(header.command).decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete command"),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	let cmd = CmdCodec(header.command).decode(&mut buf)?.context("Incomplete command")?;
 
 	match cmd {
 		Command::Auth { uuid, token } => {
-			handle_auth(&connection, uuid, token).await?;
+			handle_auth(&ctx, uuid, token).await?;
 		}
 		Command::Packet { assoc_id, size, .. } => {
 			// Decode address
-			let addr = AddressCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-				source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete address"),
-				backtrace: std::backtrace::Backtrace::capture(),
-			})?;
+			let addr = AddressCodec.decode(&mut buf)?.context("Incomplete address")?;
 
 			let payload = buf.split_to(size as usize).freeze();
-			let target_addr: wind_core::types::TargetAddr = match addr {
-				crate::proto::Address::Domain(domain, port) => wind_core::types::TargetAddr::Domain(domain, port),
-				crate::proto::Address::IPv4(ip, port) => wind_core::types::TargetAddr::IPv4(ip, port),
-				crate::proto::Address::IPv6(ip, port) => wind_core::types::TargetAddr::IPv6(ip, port),
-				crate::proto::Address::None => return Ok(()),
+			let target_addr: TargetAddr = match addr {
+				Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
+				Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
+				Address::IPv6(ip, port) => TargetAddr::IPv6(ip, port),
+				Address::None => return Ok(()),
 			};
-			handle_udp_packet(&connection, assoc_id, target_addr, payload, callback).await?;
+			handle_udp_packet(&ctx, assoc_id, target_addr, payload, callback).await?;
 		}
 		Command::Dissociate { assoc_id } => {
-			handle_dissociate(&connection, assoc_id).await?;
+			handle_dissociate(&ctx, assoc_id).await?;
 		}
 		Command::Heartbeat => {
 			// Just acknowledge heartbeat
-			info!("Received heartbeat from {:?}", connection.uuid.read().await);
+			info!("Received heartbeat from {:?}", ctx.uuid.read().await);
 		}
 		_ => {
 			warn!("Unexpected command on uni stream: {:?}", cmd);
@@ -444,11 +426,11 @@ async fn handle_uni_stream<C: InboundCallback>(
 
 /// Handle bidirectional stream (Connect for TCP relay)
 async fn handle_bi_stream<C: InboundCallback>(
-	connection: Arc<Connection>,
+	connection: Arc<InboundCtx>,
 	send: quinn::SendStream,
 	mut recv: quinn::RecvStream,
 	callback: &C,
-) -> Result<(), Error> {
+) -> eyre::Result<()> {
 	// Check if authenticated
 	{
 		let uuid = connection.uuid.read().await;
@@ -460,16 +442,12 @@ async fn handle_bi_stream<C: InboundCallback>(
 
 	// Read header and command
 	let mut header_buf = vec![0u8; 2];
-	recv.read_exact(&mut header_buf).await.map_err(|e| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	recv.read_exact(&mut header_buf)
+		.await
+		.map_err(|e| eyre::eyre!("Failed to read header: {}", e))?;
 	let mut buf = BytesMut::from(&header_buf[..]);
 
-	let header = HeaderCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	let header = HeaderCodec.decode(&mut buf)?.context("Incomplete header")?;
 
 	match header.command {
 		CmdType::Connect => {
@@ -477,12 +455,12 @@ async fn handle_bi_stream<C: InboundCallback>(
 			let _cmd = CmdCodec(CmdType::Connect).decode(&mut BytesMut::new())?;
 
 			// Read address
-			let addr_data = recv.read_to_end(512).await.map_err(|e| Error::Io {
-				source:    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-				backtrace: std::backtrace::Backtrace::capture(),
-			})?;
+			let addr_data = recv
+				.read_to_end(512)
+				.await
+				.map_err(|e| eyre::eyre!("Failed to read address: {}", e))?;
 			let mut addr_buf = BytesMut::from(&addr_data[..]);
-			let addr = AddressCodec.decode(&mut addr_buf)?.context(BytesRemainingSnafu)?;
+			let addr = AddressCodec.decode(&mut addr_buf)?.context("Incomplete address")?;
 
 			let target_addr = match addr {
 				Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
@@ -512,10 +490,10 @@ async fn handle_bi_stream<C: InboundCallback>(
 
 /// Handle datagram (for UDP packets)
 async fn handle_datagram<C: InboundCallback>(
-	connection: Arc<Connection>,
+	connection: Arc<InboundCtx>,
 	data: bytes::Bytes,
 	callback: &C,
-) -> Result<(), Error> {
+) -> eyre::Result<()> {
 	// Check if authenticated
 	{
 		let uuid = connection.uuid.read().await;
@@ -527,23 +505,14 @@ async fn handle_datagram<C: InboundCallback>(
 	let mut buf = BytesMut::from(data.as_ref());
 
 	// Decode header
-	let header = HeaderCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete header"),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	let header = HeaderCodec.decode(&mut buf)?.context("Incomplete header")?;
 
 	match header.command {
 		CmdType::Packet => {
-			let cmd = CmdCodec(CmdType::Packet).decode(&mut buf)?.ok_or_else(|| Error::Io {
-				source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete command"),
-				backtrace: std::backtrace::Backtrace::capture(),
-			})?;
+			let cmd = CmdCodec(CmdType::Packet).decode(&mut buf)?.context("Incomplete command")?;
 
 			if let Command::Packet { assoc_id, size, .. } = cmd {
-				let addr = AddressCodec.decode(&mut buf)?.ok_or_else(|| Error::Io {
-					source:    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete address"),
-					backtrace: std::backtrace::Backtrace::capture(),
-				})?;
+				let addr = AddressCodec.decode(&mut buf)?.context("Incomplete address")?;
 
 				let payload = buf.split_to(size as usize).freeze();
 				let target_addr: wind_core::types::TargetAddr = match addr {
@@ -565,24 +534,22 @@ async fn handle_datagram<C: InboundCallback>(
 }
 
 /// Handle authentication
-async fn handle_auth(connection: &Connection, uuid: Uuid, token: [u8; 32]) -> Result<(), Error> {
+async fn handle_auth(connection: &InboundCtx, uuid: Uuid, token: [u8; 32]) -> eyre::Result<()> {
 	// Check if user exists
-	let password = connection.users.get(&uuid).ok_or_else(|| Error::Io {
-		source:    std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("Unknown user: {}", uuid)),
-		backtrace: std::backtrace::Backtrace::capture(),
-	})?;
+	let password = connection
+		.users
+		.get(&uuid)
+		.with_context(|| format!("Unknown user: {}", uuid))?;
 
 	// Verify token
 	let mut expected_token = [0u8; 32];
 	connection
-		.inner
-		.export_keying_material(&mut expected_token, uuid.as_bytes(), password.as_bytes())?;
+		.conn
+		.export_keying_material(&mut expected_token, uuid.as_bytes(), password.as_bytes())
+		.map_err(|_| eyre::eyre!("Failed to export keying material"))?;
 
 	if token != expected_token {
-		return Err(Error::Io {
-			source:    std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Invalid token"),
-			backtrace: std::backtrace::Backtrace::capture(),
-		});
+		return Err(eyre::eyre!("Invalid authentication token"));
 	}
 
 	// Mark as authenticated
@@ -594,12 +561,12 @@ async fn handle_auth(connection: &Connection, uuid: Uuid, token: [u8; 32]) -> Re
 
 /// Handle UDP packet
 async fn handle_udp_packet<C: InboundCallback>(
-	_connection: &Connection,
+	_connection: &InboundCtx,
 	assoc_id: u16,
 	target_addr: wind_core::types::TargetAddr,
 	payload: bytes::Bytes,
-	callback: &C,
-) -> Result<(), Error> {
+	_callback: &C,
+) -> eyre::Result<()> {
 	// TODO: Complete UDP packet handling
 	// Full implementation requires:
 	// 1. Creating a virtual UDP socket that maps TUIC packets to UDP datagrams
@@ -624,7 +591,7 @@ async fn handle_udp_packet<C: InboundCallback>(
 }
 
 /// Handle UDP dissociate
-async fn handle_dissociate(connection: &Connection, assoc_id: u16) -> Result<(), Error> {
+async fn handle_dissociate(connection: &InboundCtx, assoc_id: u16) -> eyre::Result<()> {
 	let mut sessions = connection.udp_sessions.write().await;
 	sessions.remove(&assoc_id);
 	info!("Dissociated UDP session {}", assoc_id);
