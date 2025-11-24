@@ -23,11 +23,11 @@ use tokio::{
 	io::{AsyncRead, AsyncWrite},
 	sync::RwLock,
 };
-use tokio_util::{codec::Decoder, sync::CancellationToken};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use wind_core::{AbstractInbound, AppContext, InboundCallback, error, info, types::TargetAddr, warn};
+use wind_core::{AbstractInbound, AppContext, InboundCallback, error, info, warn};
 
-use crate::proto::{Address, AddressCodec, CmdCodec, CmdType, Command, HeaderCodec};
+use crate::proto::{CmdType, Command};
 
 /// Wrapper to combine quinn's SendStream and RecvStream into a single
 /// bidirectional stream
@@ -66,11 +66,6 @@ impl AsyncWrite for QuicBidiStream {
 	}
 }
 
-/// TUIC server configuration
-///
-/// This struct contains all the configuration options for the TUIC server,
-/// including TLS settings, QUIC transport parameters, and authentication
-/// credentials.
 pub struct TuicInboundOpts {
 	/// Server bind address
 	pub listen_addr: SocketAddr,
@@ -272,11 +267,11 @@ async fn handle_connection<C: InboundCallback>(
 	let remote_addr = incoming.remote_address();
 
 	let connecting = match incoming.accept() {
-		Ok(conn) => conn,
 		Err(e) => {
 			error!("Failed to accept connection: {:?}", e);
 			return Ok(());
 		}
+		Ok(conn) => conn,
 	};
 
 	// Accept connection with optional 0-RTT
@@ -321,50 +316,47 @@ async fn handle_connection<C: InboundCallback>(
 		tokio::select! {
 			// Handle unidirectional streams
 			result = connection.conn.accept_uni() => {
-				match result {
-					Ok(recv) => {
-						let conn = connection.clone();
-						// Handle directly without spawning to keep callback reference valid
-						if let Err(e) = handle_uni_stream(conn, recv, callback).await {
-							error!("Uni stream error: {:?}", e);
-						}
-					}
+				let recv = match result {
 					Err(e) => {
 						error!("Accept uni error: {:?}", e);
 						break;
 					}
+					Ok(recv) => recv,
+				};
+				
+				let conn = connection.clone();
+				if let Err(e) = handle_uni_stream(conn, recv, callback).await {
+					error!("Uni stream error: {:?}", e);
 				}
 			}
 			// Handle bidirectional streams
 			result = connection.conn.accept_bi() => {
-				match result {
-					Ok((send, recv)) => {
-						let conn = connection.clone();
-						// Handle directly without spawning to keep callback reference valid
-						if let Err(e) = handle_bi_stream(conn, send, recv, callback).await {
-							error!("Bi stream error: {:?}", e);
-						}
-					}
+				let (send, recv) = match result {
 					Err(e) => {
 						error!("Accept bi error: {:?}", e);
 						break;
 					}
+					Ok(streams) => streams,
+				};
+				
+				let conn = connection.clone();
+				if let Err(e) = handle_bi_stream(conn, send, recv, callback).await {
+					error!("Bi stream error: {:?}", e);
 				}
 			}
 			// Handle datagrams
 			result = connection.conn.read_datagram() => {
-				match result {
-					Ok(datagram) => {
-						let conn = connection.clone();
-						// Handle directly without spawning to keep callback reference valid
-						if let Err(e) = handle_datagram(conn, datagram, callback).await {
-							error!("Datagram error: {:?}", e);
-						}
-					}
+				let datagram = match result {
 					Err(e) => {
 						error!("Read datagram error: {:?}", e);
 						break;
 					}
+					Ok(datagram) => datagram,
+				};
+				
+				let conn = connection.clone();
+				if let Err(e) = handle_datagram(conn, datagram, callback).await {
+					error!("Datagram error: {:?}", e);
 				}
 			}
 		}
@@ -386,11 +378,9 @@ async fn handle_uni_stream<C: InboundCallback>(
 		.map_err(|e| eyre::eyre!("Failed to read stream: {}", e))?;
 	let mut buf = BytesMut::from(&data[..]);
 
-	// Decode header
-	let header = HeaderCodec.decode(&mut buf)?.context("Incomplete header")?;
-
-	// Decode command
-	let cmd = CmdCodec(header.command).decode(&mut buf)?.context("Incomplete command")?;
+	// Decode header and command using helper functions
+	let header = crate::proto::decode_header(&mut buf, "uni stream")?;
+	let cmd = crate::proto::decode_command(header.command, &mut buf, "uni stream")?;
 
 	match cmd {
 		Command::Auth { uuid, token } => {
@@ -398,15 +388,11 @@ async fn handle_uni_stream<C: InboundCallback>(
 		}
 		Command::Packet { assoc_id, size, .. } => {
 			// Decode address
-			let addr = AddressCodec.decode(&mut buf)?.context("Incomplete address")?;
-
+			let addr = crate::proto::decode_address(&mut buf, "uni stream packet")?;
 			let payload = buf.split_to(size as usize).freeze();
-			let target_addr: TargetAddr = match addr {
-				Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
-				Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
-				Address::IPv6(ip, port) => TargetAddr::IPv6(ip, port),
-				Address::None => return Ok(()),
-			};
+			
+			// Convert address to TargetAddr using helper function
+			let target_addr = crate::proto::address_to_target(addr)?;
 			handle_udp_packet(&ctx, assoc_id, target_addr, payload, callback).await?;
 		}
 		Command::Dissociate { assoc_id } => {
@@ -431,14 +417,13 @@ async fn handle_bi_stream<C: InboundCallback>(
 	mut recv: quinn::RecvStream,
 	callback: &C,
 ) -> eyre::Result<()> {
-	// Check if authenticated
-	{
-		let uuid = connection.uuid.read().await;
-		if uuid.is_none() {
-			warn!("Unauthenticated bi stream attempt");
-			return Ok(());
-		}
+	// Check if authenticated - guard clause
+	let uuid = connection.uuid.read().await;
+	if uuid.is_none() {
+		warn!("Unauthenticated bi stream attempt");
+		return Ok(());
 	}
+	drop(uuid);
 
 	// Read header and command
 	let mut header_buf = vec![0u8; 2];
@@ -447,12 +432,12 @@ async fn handle_bi_stream<C: InboundCallback>(
 		.map_err(|e| eyre::eyre!("Failed to read header: {}", e))?;
 	let mut buf = BytesMut::from(&header_buf[..]);
 
-	let header = HeaderCodec.decode(&mut buf)?.context("Incomplete header")?;
+	let header = crate::proto::decode_header(&mut buf, "bi stream")?;
 
 	match header.command {
 		CmdType::Connect => {
 			// Decode command (Connect has no additional fields)
-			let _cmd = CmdCodec(CmdType::Connect).decode(&mut BytesMut::new())?;
+			let _cmd = crate::proto::decode_command(CmdType::Connect, &mut BytesMut::new(), "bi stream")?;
 
 			// Read address
 			let addr_data = recv
@@ -460,17 +445,10 @@ async fn handle_bi_stream<C: InboundCallback>(
 				.await
 				.map_err(|e| eyre::eyre!("Failed to read address: {}", e))?;
 			let mut addr_buf = BytesMut::from(&addr_data[..]);
-			let addr = AddressCodec.decode(&mut addr_buf)?.context("Incomplete address")?;
+			let addr = crate::proto::decode_address(&mut addr_buf, "bi stream")?;
 
-			let target_addr = match addr {
-				Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
-				Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
-				Address::IPv6(ip, port) => TargetAddr::IPv6(ip, port),
-				Address::None => {
-					warn!("Invalid target address");
-					return Ok(());
-				}
-			};
+			// Convert address to TargetAddr using helper function
+			let target_addr = crate::proto::address_to_target(addr)?;
 
 			info!("TCP connect to {}", target_addr);
 
@@ -494,33 +472,28 @@ async fn handle_datagram<C: InboundCallback>(
 	data: bytes::Bytes,
 	callback: &C,
 ) -> eyre::Result<()> {
-	// Check if authenticated
-	{
-		let uuid = connection.uuid.read().await;
-		if uuid.is_none() {
-			return Ok(());
-		}
+	// Check if authenticated - guard clause
+	let uuid = connection.uuid.read().await;
+	if uuid.is_none() {
+		return Ok(());
 	}
+	drop(uuid);
 
 	let mut buf = BytesMut::from(data.as_ref());
 
-	// Decode header
-	let header = HeaderCodec.decode(&mut buf)?.context("Incomplete header")?;
+	// Decode header using helper function
+	let header = crate::proto::decode_header(&mut buf, "datagram")?;
 
 	match header.command {
 		CmdType::Packet => {
-			let cmd = CmdCodec(CmdType::Packet).decode(&mut buf)?.context("Incomplete command")?;
+			let cmd = crate::proto::decode_command(CmdType::Packet, &mut buf, "datagram")?;
 
 			if let Command::Packet { assoc_id, size, .. } = cmd {
-				let addr = AddressCodec.decode(&mut buf)?.context("Incomplete address")?;
-
+				let addr = crate::proto::decode_address(&mut buf, "datagram packet")?;
 				let payload = buf.split_to(size as usize).freeze();
-				let target_addr: wind_core::types::TargetAddr = match addr {
-					Address::Domain(domain, port) => TargetAddr::Domain(domain, port),
-					Address::IPv4(ip, port) => TargetAddr::IPv4(ip, port),
-					Address::IPv6(ip, port) => TargetAddr::IPv6(ip, port),
-					Address::None => return Ok(()),
-				};
+				
+				// Convert address to TargetAddr using helper function
+				let target_addr = crate::proto::address_to_target(addr)?;
 				handle_udp_packet(&connection, assoc_id, target_addr, payload, callback).await?;
 			}
 		}

@@ -45,14 +45,16 @@ impl AbstractInbound for SocksInbound {
 					break;
 				}
 				res = listener.accept() => {
-					match res {
-						Err(err) => error!(target:"[IN] REACTOR", "{:}", err),
-						Ok((stream, client_addr)) => {
-							match self.handle_income(stream, client_addr, cb).await {
-								Ok(_) => {}
-								Err(err) => error!(target: "[IN] HANDLER" , "{:}", err),
-							}
+					let (stream, client_addr) = match res {
+						Err(err) => {
+							error!(target:"[IN] REACTOR", "{:}", err);
+							continue;
 						}
+						Ok(conn) => conn,
+					};
+					
+					if let Err(err) = self.handle_income(stream, client_addr, cb).await {
+						error!(target: "[IN] HANDLER" , "{:}", err);
 					}
 				}
 			};

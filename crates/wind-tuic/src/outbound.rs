@@ -148,30 +148,20 @@ impl TuicOutbound {
 						info!(target: "[OUT]", "Received datagram: {} bytes", bytes.len());
 						// Process the received datagram
 						use bytes::Buf;
-						use tokio_util::codec::Decoder;
 
 						let mut buf = bytes::BytesMut::from(bytes.as_ref());
 
-						// Parse header
-						let header = match crate::proto::HeaderCodec.decode(&mut buf) {
-							Ok(Some(h)) => h,
-							Ok(None) => {
-								warn!(target: "[OUT]", "Incomplete header in datagram");
-								continue;
-							}
+						// Parse header, command, and address using helper functions
+						let header = match crate::proto::decode_header(&mut buf, "datagram") {
+							Ok(h) => h,
 							Err(e) => {
 								warn!(target: "[OUT]", "Failed to decode header: {}", e);
 								continue;
 							}
 						};
 
-						// Parse command based on header type
-						let cmd = match crate::proto::CmdCodec(header.command).decode(&mut buf) {
-							Ok(Some(c)) => c,
-							Ok(None) => {
-								warn!(target: "[OUT]", "Incomplete command in datagram");
-								continue;
-							}
+						let cmd = match crate::proto::decode_command(header.command, &mut buf, "datagram") {
+							Ok(c) => c,
 							Err(e) => {
 								warn!(target: "[OUT]", "Failed to decode command: {}", e);
 								continue;
@@ -187,12 +177,8 @@ impl TuicOutbound {
 							size,
 						} = cmd {
 							// Parse address
-							let addr = match crate::proto::AddressCodec.decode(&mut buf) {
-								Ok(Some(a)) => a,
-								Ok(None) => {
-									warn!(target: "[OUT]", "Incomplete address in UDP packet");
-									continue;
-								}
+							let addr = match crate::proto::decode_address(&mut buf, "UDP packet") {
+								Ok(a) => a,
 								Err(e) => {
 									warn!(target: "[OUT]", "Failed to decode address: {}", e);
 									continue;
@@ -205,14 +191,11 @@ impl TuicOutbound {
 							// Convert address to TargetAddr and handle logging
 							// Note: For fragmented packets, only the first fragment contains the address
 							// Subsequent fragments will have Address::None, which is handled in process_fragment
-							let (target, has_address) = match addr {
-								crate::proto::Address::IPv4(ip, port) => (TargetAddr::IPv4(ip, port), true),
-								crate::proto::Address::IPv6(ip, port) => (TargetAddr::IPv6(ip, port), true),
-								crate::proto::Address::Domain(domain, port) => (TargetAddr::Domain(domain, port), true),
-								crate::proto::Address::None => {
-									// For non-first fragments, we need a placeholder address
+							let (target, has_address) = match crate::proto::address_to_target(addr) {
+								Ok(t) => (t, true),
+								Err(_) => {
+									// For non-first fragments (Address::None), use a placeholder address
 									// The actual address will be retrieved from the first fragment during reassembly
-									// Use an invalid address that will be replaced during reassembly
 									(TargetAddr::IPv4(std::net::Ipv4Addr::UNSPECIFIED, 0), false)
 								}
 							};
@@ -311,39 +294,39 @@ impl AbstractOutbound for TuicOutbound {
 					}
 
 					result = receive_rx.recv() => {
-						match result {
-							Ok(packet) => {
-								// Received packet from remote, send to local socket
-								// overrided in socks inbound
-								const UNSPECIFIED_V4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-								if let Err(e) = socket_clone.send(&packet.payload, UNSPECIFIED_V4).await {
-									warn!(target: "[OUT]", "Failed to send UDP packet to local socket (assoc {:#06x}): {:?}", assoc_id, e);
-								} else {
-									info!(target: "[OUT]", "Received UDP packet forward to local ({} bytes, assoc {:#06x})", packet.payload.len(), assoc_id);
-								}
-							}
+						let packet = match result {
 							Err(e) => {
 								warn!(target: "[OUT]", "Error receiving packet from channel for association {:#06x}: {}", assoc_id, e);
 								break;
 							}
+							Ok(packet) => packet,
+						};
+						
+						// Received packet from remote, send to local socket
+						// overrided in socks inbound
+						const UNSPECIFIED_V4: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+						if let Err(e) = socket_clone.send(&packet.payload, UNSPECIFIED_V4).await {
+							warn!(target: "[OUT]", "Failed to send UDP packet to local socket (assoc {:#06x}): {:?}", assoc_id, e);
+						} else {
+							info!(target: "[OUT]", "Received UDP packet forward to local ({} bytes, assoc {:#06x})", packet.payload.len(), assoc_id);
 						}
 					}
 					// send queue
 					packet = send_rx.recv() => {
-						match packet {
-							Ok(packet) => {
-								// Send packet to remote via UDP stream
-								let payload_len = packet.payload.len();
-								if let Err(e) = udp_stream.send_packet(packet).await {
-									warn!(target: "[OUT]", "Failed to send UDP packet to remote (assoc {:#06x}): {}", assoc_id, e);
-								} else {
-									info!(target: "[OUT]", "Sent UDP packet to remote ({} bytes, assoc {:#06x})", payload_len, assoc_id);
-								}
-							}
+						let packet = match packet {
 							Err(e) => {
 								warn!(target: "[OUT]", "Error receiving packet from channel for association {:#06x}: {}", assoc_id, e);
 								break;
 							}
+							Ok(packet) => packet,
+						};
+						
+						// Send packet to remote via UDP stream
+						let payload_len = packet.payload.len();
+						if let Err(e) = udp_stream.send_packet(packet).await {
+							warn!(target: "[OUT]", "Failed to send UDP packet to remote (assoc {:#06x}): {}", assoc_id, e);
+						} else {
+							info!(target: "[OUT]", "Sent UDP packet to remote ({} bytes, assoc {:#06x})", payload_len, assoc_id);
 						}
 					}
 					_ = gc_interval.tick() => {
@@ -376,83 +359,81 @@ impl AbstractOutbound for TuicOutbound {
 							.await?;
 						ensure!(result == 1, "Expected to receive 1 datagram, got {}", result);
 
-						eyre::Ok(meta)
-					} => {
-						match result {
-							Ok(meta) => {
-								// In outbound context, get target address from meta.destination or use meta.addr
-								let target_addr = meta.destination
-									.as_ref()
-									.map(|dest| match dest {
-										TargetAddr::IPv4(ip, port) => SocketAddr::from((*ip, *port)),
-										TargetAddr::IPv6(ip, port) => SocketAddr::from((*ip, *port)),
-										TargetAddr::Domain(_, _) => {
-											warn!(target: "[OUT]", "Cannot convert domain to SocketAddr, using meta.addr for association {:#06x}", assoc_id);
-											meta.addr
-										}
-									})
-									.unwrap_or(meta.addr);
-
-								let total_len = meta.len;
-
-								// Convert SocketAddr to TargetAddr
-								let target = match target_addr {
-									SocketAddr::V4(addr) => TargetAddr::IPv4(*addr.ip(), addr.port()),
-									SocketAddr::V6(addr) => TargetAddr::IPv6(*addr.ip(), addr.port()),
-								};
-
-								// Handle GRO (Generic Receive Offload): stride indicates segment size
-								// If stride > 0, the buffer contains multiple segments of that size
-								let stride = meta.stride;
-
-							if stride > 0 && total_len > stride {
-								// Multiple segments received via GRO, send each separately
-								let num_segments = total_len.div_ceil(stride);
-								info!(target: "[OUT]", "Received {} GRO segments ({} bytes total, stride {}) for assoc {:#06x}",
-									num_segments, total_len, stride, assoc_id);									for segment_idx in 0..num_segments {
-										let segment_start = segment_idx * stride;
-										let segment_end = std::cmp::min(segment_start + stride, total_len);
-
-										let payload = bytes::Bytes::copy_from_slice(&buf[segment_start..segment_end]);
-
-										// Create UdpPacket and send via channel
-										let packet = wind_core::udp::UdpPacket {
-											source: None, // TODO: Add source address tracking
-											target: target.clone(),
-											payload,
-										};
-
-										if let Err(_e) = send_tx.send(packet).await {
-											warn!(target: "[OUT]", "Failed to send UDP segment {}/{} to channel for association {:#06x}: channel closed",
-												segment_idx + 1, num_segments, assoc_id);
-											break;
-										}
-									}
-								} else {
-									// Single packet (no GRO or single segment)
-									let payload = bytes::Bytes::copy_from_slice(&buf[..total_len]);
-
-									info!(target: "[OUT]", "Sending UDP packet to {}: {} bytes (assoc {:#06x})", target, total_len, assoc_id);
-
-									// Create UdpPacket and send via channel
-									let packet = wind_core::udp::UdpPacket {
-										source: None, // TODO: Add source address tracking
-										target,
-										payload,
-									};
-
-									if let Err(_e) = send_tx.send(packet).await {
-										warn!(target: "[OUT]", "Failed to send UDP packet to channel for association {:#06x}: channel closed", assoc_id);
-										break;
-									}
-								}
+					eyre::Ok(meta)
+				} => {
+					let meta = match result {
+						Err(e) => {
+							warn!(target: "[OUT]", "Error receiving from UDP socket (assoc {:#06x}): {}", assoc_id, e);
+							break;
+						}
+						Ok(meta) => meta,
+					};
+					
+					// In outbound context, get target address from meta.destination or use meta.addr
+					let target_addr = meta.destination
+						.as_ref()
+						.map(|dest| match dest {
+							TargetAddr::IPv4(ip, port) => SocketAddr::from((*ip, *port)),
+							TargetAddr::IPv6(ip, port) => SocketAddr::from((*ip, *port)),
+							TargetAddr::Domain(_, _) => {
+								warn!(target: "[OUT]", "Cannot convert domain to SocketAddr, using meta.addr for association {:#06x}", assoc_id);
+								meta.addr
 							}
-							Err(e) => {
-								warn!(target: "[OUT]", "Error receiving from UDP socket (assoc {:#06x}): {}", assoc_id, e);
+						})
+						.unwrap_or(meta.addr);
+
+					let total_len = meta.len;
+
+					// Convert SocketAddr to TargetAddr using From trait
+					let target = TargetAddr::from(target_addr);
+
+					// Handle GRO (Generic Receive Offload): stride indicates segment size
+					// If stride > 0, the buffer contains multiple segments of that size
+					let stride = meta.stride;
+
+					if stride > 0 && total_len > stride {
+						// Multiple segments received via GRO, send each separately
+						let num_segments = total_len.div_ceil(stride);
+						info!(target: "[OUT]", "Received {} GRO segments ({} bytes total, stride {}) for assoc {:#06x}",
+							num_segments, total_len, stride, assoc_id);
+						for segment_idx in 0..num_segments {
+							let segment_start = segment_idx * stride;
+							let segment_end = std::cmp::min(segment_start + stride, total_len);
+
+							let payload = bytes::Bytes::copy_from_slice(&buf[segment_start..segment_end]);
+
+							// Create UdpPacket and send via channel
+							let packet = wind_core::udp::UdpPacket {
+								source: None, // TODO: Add source address tracking
+								target: target.clone(),
+								payload,
+							};
+
+							if let Err(_e) = send_tx.send(packet).await {
+								warn!(target: "[OUT]", "Failed to send UDP segment {}/{} to channel for association {:#06x}: channel closed",
+									segment_idx + 1, num_segments, assoc_id);
 								break;
 							}
 						}
+					} else {
+						// Single packet (no GRO or single segment)
+						let payload = bytes::Bytes::copy_from_slice(&buf[..total_len]);
+
+						info!(target: "[OUT]", "Sending UDP packet to {}: {} bytes (assoc {:#06x})", target, total_len, assoc_id);
+
+						// Create UdpPacket and send via channel
+						let packet = wind_core::udp::UdpPacket {
+							source: None, // TODO: Add source address tracking
+							target,
+							payload,
+						};
+
+						if let Err(_e) = send_tx.send(packet).await {
+							warn!(target: "[OUT]", "Failed to send UDP packet to channel for association {:#06x}: channel closed", assoc_id);
+							break;
+						}
 					}
+				}
 				}
 			}
 			eyre::Ok(())

@@ -133,7 +133,7 @@ impl PersistentConfig {
 				figment = figment.merge(Yaml::file(config_file));
 			}
 		} else {
-			// Try to load from default locations
+			// Try to load from default locations in current directory
 			let config_toml = std::path::Path::new("config.toml");
 			if config_toml.exists() {
 				figment = figment.merge(Toml::file(config_toml));

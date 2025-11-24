@@ -2,7 +2,7 @@
 
 ## Status of This Memo
 
-This document specifies the TUIC (TLS-based Unified Internet Connection) Protocol version 0x05 for the Internet community. This specification defines a multiplexed, TLS-encrypted streaming protocol designed for efficient network relaying over QUIC transport.
+This document specifies the TUIC Protocol version 0x05 for the Internet community. This specification defines a multiplexed, TLS-encrypted streaming protocol designed for efficient network relaying over QUIC transport.
 
 ## Abstract
 

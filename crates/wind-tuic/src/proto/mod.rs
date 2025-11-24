@@ -16,13 +16,59 @@ mod addr;
 pub use addr::*;
 
 mod udp_stream;
-use tokio_util::codec::Encoder;
+use tokio_util::codec::{Decoder, Encoder};
 pub use udp_stream::*;
 use wind_core::{io::quinn::QuinnCompat, tcp::AbstractTcpStream, types::TargetAddr};
 
 use crate::Error;
 
 pub const VER: u8 = 5;
+
+/// Helper function to decode header with better error reporting
+pub fn decode_header(buf: &mut BytesMut, context: &str) -> Result<Header, Error> {
+	HeaderCodec.decode(buf)?
+		.ok_or_else(|| eyre!("Incomplete header in {}", context).into())
+}
+
+/// Helper function to decode command with better error reporting
+pub fn decode_command(cmd_type: CmdType, buf: &mut BytesMut, context: &str) -> Result<Command, Error> {
+	CmdCodec(cmd_type).decode(buf)?
+		.ok_or_else(|| eyre!("Incomplete command in {}", context).into())
+}
+
+/// Helper function to decode address with better error reporting
+pub fn decode_address(buf: &mut BytesMut, context: &str) -> Result<Address, Error> {
+	AddressCodec.decode(buf)?
+		.ok_or_else(|| eyre!("Incomplete address in {}", context).into())
+}
+
+/// Helper function to convert Address to TargetAddr
+pub fn address_to_target(addr: Address) -> Result<TargetAddr, Error> {
+	match addr {
+		Address::Domain(domain, port) => Ok(TargetAddr::Domain(domain, port)),
+		Address::IPv4(ip, port) => Ok(TargetAddr::IPv4(ip, port)),
+		Address::IPv6(ip, port) => Ok(TargetAddr::IPv6(ip, port)),
+		Address::None => Err(eyre!("Address::None cannot be converted to TargetAddr").into()),
+	}
+}
+
+/// Helper function to encode and send data via unidirectional stream
+pub async fn encode_and_send_uni(
+	conn: &quinn::Connection,
+	cmd_type: CmdType,
+	command: Command,
+	address: Option<Address>,
+) -> Result<(), Error> {
+	let mut buf = BytesMut::with_capacity(64);
+	HeaderCodec.encode(Header::new(cmd_type), &mut buf)?;
+	CmdCodec(cmd_type).encode(command, &mut buf)?;
+	if let Some(addr) = address {
+		AddressCodec.encode(addr, &mut buf)?;
+	}
+	let mut send = conn.open_uni().await?;
+	send.write_chunk(buf.into()).await?;
+	Ok(())
+}
 
 pub trait ClientProtoExt {
 	fn send_auth(&self, uuid: &uuid::Uuid, secret: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
@@ -76,6 +122,7 @@ impl ClientProtoExt for quinn::Connection {
 		AddressCodec.encode(addr.to_owned().into(), &mut buf)?;
 		send.write_chunk(buf.into()).await?;
 		let (a, b, err) = wind_core::io::copy_io(&mut stream, &mut QuinnCompat::new(send, recv)).await;
+		// Guard clause: return early if there's an error
 		if let Some(e) = err {
 			return Err(e.into());
 		}

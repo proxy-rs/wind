@@ -1,6 +1,6 @@
 use std::{
 	fmt::Display,
-	net::{Ipv4Addr, Ipv6Addr},
+	net::{Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -10,6 +10,15 @@ pub enum TargetAddr {
 	Domain(String, u16),
 	IPv4(Ipv4Addr, u16),
 	IPv6(Ipv6Addr, u16),
+}
+
+impl From<SocketAddr> for TargetAddr {
+	fn from(addr: SocketAddr) -> Self {
+		match addr {
+			SocketAddr::V4(addr) => TargetAddr::IPv4(*addr.ip(), addr.port()),
+			SocketAddr::V6(addr) => TargetAddr::IPv6(*addr.ip(), addr.port()),
+		}
+	}
 }
 
 impl Display for TargetAddr {

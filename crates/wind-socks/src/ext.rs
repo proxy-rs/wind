@@ -37,22 +37,24 @@ macro_rules! try_notify {
 }
 
 fn udp_bind_random_port(addr: Option<IpAddr>) -> io::Result<Socket> {
+	// Early return pattern: handle the Some case first
 	if let Some(addr) = addr {
 		let sock_addr = SocketAddr::new(addr, 0);
 		let socket = Socket::new(Domain::for_address(sock_addr), Type::DGRAM, None)?;
 		socket.bind(&sock_addr.into())?;
-		Ok(socket)
-	} else {
-		const V4_UNSPEC: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-		const V6_UNSPEC: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0);
-		Socket::new(Domain::IPV6, Type::DGRAM, None)
-			.and_then(|socket| socket.set_only_v6(false).map(|_| socket))
-			.and_then(|socket| socket.bind(&V6_UNSPEC.into()).map(|_| socket))
-			.or_else(|_| {
-				Socket::new(Domain::IPV4, Type::DGRAM, None).and_then(|socket| socket.bind(&V4_UNSPEC.into()).map(|_| socket))
-			})
+		return socket.set_nonblocking(true).map(|_| socket);
 	}
-	.and_then(|socket| socket.set_nonblocking(true).map(|_| socket))
+	
+	// Handle None case (trying IPv6 first, then IPv4)
+	const V4_UNSPEC: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+	const V6_UNSPEC: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0);
+	Socket::new(Domain::IPV6, Type::DGRAM, None)
+		.and_then(|socket| socket.set_only_v6(false).map(|_| socket))
+		.and_then(|socket| socket.bind(&V6_UNSPEC.into()).map(|_| socket))
+		.or_else(|_| {
+			Socket::new(Domain::IPV4, Type::DGRAM, None).and_then(|socket| socket.bind(&V4_UNSPEC.into()).map(|_| socket))
+		})
+		.and_then(|socket| socket.set_nonblocking(true).map(|_| socket))
 }
 
 pub async fn run_udp_proxy<T, F, R>(
