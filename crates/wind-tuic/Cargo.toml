@@ -62,5 +62,5 @@ tracing = "0.1"
 tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "io-util"] }
 eyre = "0.6"
 color-eyre = { version = "0.6", default-features = false }
-rcgen = "0.13"
+rcgen = "0.14"
 test-log = { version = "0.2", features = ["trace"] }
